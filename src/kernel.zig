@@ -17,7 +17,7 @@ export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
 
-    _ = console.writeBytes("\n\nHello World\n") catch 0;
+    console.print("Hello World from custom Writer! with number: {d}\nstack_top:\n{*}\n 0x{x}\n\n", .{ 42, stack_top, @intFromPtr(stack_top) }) catch {};
 
     while (true) asm volatile ("");
 }
