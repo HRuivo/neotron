@@ -5,6 +5,15 @@ const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
 const stack_top = @extern([*]align(16) u8, .{ .name = "__stack_top" });
 
+const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
+const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
+
+const heap_memory = free_ram[0 .. free_ram_end - free_ram];
+
+const PAGE_SIZE: usize = 4096;
+
+var next_paddr: ?usize = null;
+
 pub const panic = std.debug.FullPanic(kernelPanic);
 
 fn kernelPanic(message: []const u8, return_address: ?usize) noreturn {
@@ -30,10 +39,21 @@ export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
 
-    writeCsr("stvec", @intFromPtr(&kernelEntry));
-    asm volatile ("unimp");
+    const paddr0: usize = allocPages(2);
+    _ = allocPages(10060);
+    _ = allocPages(6060);
+    _ = allocPages(261);
+    const paddr1: usize = allocPages(1);
+    console.print("\nallocPages test: paddr0=0x{x}\n", .{paddr0}) catch {};
+    console.print("allocPages test: paddr1=0x{x}\n", .{paddr1}) catch {};
 
-    console.print("Hello World from custom Writer! with number: {d}\nstack_top:\n{*}\n 0x{x}\n\n", .{ 42, stack_top, @intFromPtr(stack_top) }) catch @panic("failed to write boot message");
+    // writeCsr("stvec", @intFromPtr(&kernelEntry));
+    // asm volatile ("unimp");
+
+    console.print(
+        "\n\nHello World from custom Writer! with number: {d}\nstack_top:\n{*}\n 0x{x}\n\n",
+        .{ 42, stack_top, @intFromPtr(stack_top) },
+    ) catch @panic("failed to write boot message");
 
     @panic("test panic");
 
@@ -74,7 +94,7 @@ const TrapFrame = packed struct {
     sp: usize,
 };
 
-export fn kernelEntry() align(4) callconv(.naked) void {
+fn kernelEntry() align(4) callconv(.naked) void {
     asm volatile (
         \\csrw sscratch, sp
         \\addi sp, sp, -128
@@ -173,4 +193,25 @@ pub inline fn writeCsr(comptime reg: []const u8, value: usize) void {
         :
         : [value] "r" (value),
     );
+}
+
+fn allocPages(n: u32) usize {
+    const addr = next_paddr orelse @intFromPtr(free_ram);
+
+    const bytes = std.math.mul(
+        usize,
+        @as(usize, n),
+        PAGE_SIZE,
+    ) catch @panic("page count overflow");
+
+    const end = std.math.add(
+        usize,
+        addr,
+        bytes,
+    ) catch @panic("address overflow");
+
+    if (end > @intFromPtr(free_ram_end)) @panic("out of free RAM");
+
+    next_paddr = end;
+    return addr;
 }
