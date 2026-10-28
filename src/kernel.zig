@@ -12,8 +12,6 @@ var heap: std.heap.FixedBufferAllocator = undefined;
 
 const PAGE_SIZE: usize = 4096;
 
-var next_paddr: ?usize = null;
-
 pub const panic = std.debug.FullPanic(kernelPanic);
 
 fn kernelPanic(message: []const u8, return_address: ?usize) noreturn {
@@ -199,25 +197,4 @@ pub inline fn writeCsr(comptime reg: []const u8, value: usize) void {
         :
         : [value] "r" (value),
     );
-}
-
-fn allocPages(n: u32) usize {
-    const addr = next_paddr orelse @intFromPtr(free_ram);
-
-    const bytes = std.math.mul(
-        usize,
-        @as(usize, n),
-        PAGE_SIZE,
-    ) catch @panic("page count overflow");
-
-    const end = std.math.add(
-        usize,
-        addr,
-        bytes,
-    ) catch @panic("address overflow");
-
-    if (end > @intFromPtr(free_ram_end)) @panic("out of free RAM");
-
-    next_paddr = end;
-    return addr;
 }
