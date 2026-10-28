@@ -1,4 +1,6 @@
-const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
+const bss = @extern([*]u8, .{ .name = "__bss" });
+const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
+const stack_top = @extern([*]align(16) u8, .{ .name = "__stack_top" });
 
 export fn boot() linksection(".text.boot") callconv(.naked) void {
     asm volatile (
@@ -10,5 +12,7 @@ export fn boot() linksection(".text.boot") callconv(.naked) void {
 }
 
 export fn kernelMain() noreturn {
+    const bss_len = bss_end - bss;
+    @memset(bss[0..bss_len], 0);
     while (true) asm volatile ("");
 }

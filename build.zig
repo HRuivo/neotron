@@ -16,10 +16,10 @@ pub fn build(b: *std.Build) void {
         "-serial",
         "mon:stdio",
         "--no-reboot",
-        // "-s",
-        // "-S",
         "-kernel",
         b.pathJoin(&.{ "zig-out/bin", kernel }),
+        "-s",
+        // "-S",
     }));
     run_qemu.step.dependOn(b.default_step);
     run_step.dependOn(&run_qemu.step);
@@ -39,12 +39,12 @@ fn buildKernel(b: *std.Build) []const u8 {
     var disabled_features = Feature.Set.empty;
     var enabled_features = Feature.Set.empty;
 
-    disabled_features.addFeature(@intFromEnum(features.a));
-    disabled_features.addFeature(@intFromEnum(features.c));
-    disabled_features.addFeature(@intFromEnum(features.d));
-    disabled_features.addFeature(@intFromEnum(features.e));
-    disabled_features.addFeature(@intFromEnum(features.f));
-    enabled_features.addFeature(@intFromEnum(features.m));
+    disabled_features.addFeature(@backingInt(features.a));
+    disabled_features.addFeature(@backingInt(features.c));
+    disabled_features.addFeature(@backingInt(features.d));
+    disabled_features.addFeature(@backingInt(features.e));
+    disabled_features.addFeature(@backingInt(features.f));
+    enabled_features.addFeature(@backingInt(features.m));
 
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .riscv32,
@@ -60,8 +60,9 @@ fn buildKernel(b: *std.Build) []const u8 {
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/kernel.zig"),
             .target = target,
-            .optimize = .ReleaseSmall,
+            .optimize = .small,
             .strip = false,
+            .unwind_tables = .none,
         }),
     });
     kernel.setLinkerScript(b.path("linker/kernel.ld"));
