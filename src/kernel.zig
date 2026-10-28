@@ -8,7 +8,7 @@ const stack_top = @extern([*]align(16) u8, .{ .name = "__stack_top" });
 const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
 const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
 
-const heap_memory = free_ram[0 .. free_ram_end - free_ram];
+var heap: std.heap.FixedBufferAllocator = undefined;
 
 const PAGE_SIZE: usize = 4096;
 
@@ -39,13 +39,19 @@ export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
 
-    const paddr0: usize = allocPages(2);
-    _ = allocPages(10060);
-    _ = allocPages(6060);
-    _ = allocPages(261);
-    const paddr1: usize = allocPages(1);
-    console.print("\nallocPages test: paddr0=0x{x}\n", .{paddr0}) catch {};
-    console.print("allocPages test: paddr1=0x{x}\n", .{paddr1}) catch {};
+    const heap_memory = free_ram[0 .. free_ram_end - free_ram];
+    heap = std.heap.FixedBufferAllocator.init(heap_memory);
+    const allocator = heap.allocator();
+
+    const page = allocator.alignedAlloc(
+        u8,
+        .fromByteUnits(PAGE_SIZE),
+        PAGE_SIZE,
+    ) catch @panic("out of RAM");
+
+    const paddr = @intFromPtr(page.ptr);
+
+    console.print("\nallocPages test: paddr0=0x{x}\n", .{paddr}) catch {};
 
     // writeCsr("stvec", @intFromPtr(&kernelEntry));
     // asm volatile ("unimp");
