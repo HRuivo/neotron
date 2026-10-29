@@ -17,6 +17,9 @@ const PROCS_MAX: usize = 8;
 
 var processes: [PROCS_MAX]Process = undefined;
 
+var current_proc: *Process = undefined;
+var idle_proc: *Process = undefined;
+
 const ProcessState = enum {
     Unused,
     Runnable,
@@ -28,6 +31,27 @@ const Process = struct {
     sp: usize,
     stack: [8192]u8 align(16),
 };
+
+fn yield() void {
+    var next: *Process = idle_proc;
+
+    // Start after the current process and wrap around for round-robin scheduling.
+    for (1..PROCS_MAX + 1) |offset| {
+        const process = &processes[(current_proc.pid - 1 + offset) % PROCS_MAX];
+        if (process.state == .Runnable and process.pid > 0) {
+            next = process;
+            break;
+        }
+    }
+
+    if (next == current_proc) {
+        return;
+    }
+
+    const prev: *Process = current_proc;
+    current_proc = next;
+    contextSwitch(&prev.sp, &next.sp);
+}
 
 fn switchContext(prev_sp: *usize, next_sp: *const usize) callconv(.naked) void {
     // a0 = prev_sp
@@ -155,18 +179,16 @@ export fn boot() linksection(".text.boot") callconv(.naked) void {
 fn aProcEntry() void {
     console.print("\n[KERNEL] starting process A\n", .{}) catch {};
     while (true) {
-        console.print("hello from proc {d}\n", .{proc_a.pid}) catch {};
-        contextSwitch(&proc_a.sp, &proc_b.sp);
-        delay();
+        console.print("hello from proc A {d}\n", .{proc_a.pid}) catch {};
+        yield();
     }
 }
 
 fn bProcEntry() void {
     console.print("[KERNEL] starting process B\n", .{}) catch {};
     while (true) {
-        console.print("hello from proc {d}\n", .{proc_b.pid}) catch {};
-        contextSwitch(&proc_b.sp, &proc_c.sp);
-        delay();
+        console.print("hello from proc B {d}\n", .{proc_b.pid}) catch {};
+        yield();
     }
 }
 
@@ -174,13 +196,12 @@ fn cProcEntry() void {
     console.print("[KERNEL] starting process C\n", .{}) catch {};
     while (true) {
         console.print("hello from proc {d}\n", .{proc_c.pid}) catch {};
-        contextSwitch(&proc_c.sp, &proc_a.sp);
-        delay();
+        yield();
     }
 }
 
 fn delay() void {
-    for (0..300000000) |_| {
+    for (0..30000000) |_| {
         asm volatile ("nop");
     }
 }
@@ -193,6 +214,13 @@ export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
 
+    const heap_memory = free_ram[0 .. free_ram_end - free_ram];
+    heap = std.heap.FixedBufferAllocator.init(heap_memory);
+
+    console.print("\n\n", .{}) catch {};
+
+    writeCsr("stvec", @intFromPtr(&kernelEntry));
+
     for (&processes) |*process| {
         process.* = .{
             .pid = 0,
@@ -202,21 +230,22 @@ export fn kernelMain() noreturn {
         };
     }
 
-    const heap_memory = free_ram[0 .. free_ram_end - free_ram];
-    heap = std.heap.FixedBufferAllocator.init(heap_memory);
+    idle_proc = createProcess(0);
+    idle_proc.pid = 0;
+    current_proc = idle_proc;
 
     proc_a = createProcess(@intFromPtr(&aProcEntry));
     proc_b = createProcess(@intFromPtr(&bProcEntry));
     proc_c = createProcess(@intFromPtr(&cProcEntry));
-
-    aProcEntry();
 
     console.print(
         "\n\nHello World from custom Writer! with number: {d}\nstack_top:\n{*}\n 0x{x}\n\n",
         .{ 42, stack_top, @intFromPtr(stack_top) },
     ) catch @panic("failed to write boot message");
 
-    while (true) asm volatile ("");
+    yield();
+    @panic("switched to idle process");
+    //while (true) asm volatile ("");
 }
 
 const TrapFrame = packed struct {

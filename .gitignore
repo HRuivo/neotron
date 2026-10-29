@@ -9,3 +9,4 @@
 *.pcap
 .zig-cache/
 zig-out/
+.zed/
