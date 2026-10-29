@@ -26,7 +26,7 @@ const Process = struct {
     pid: u32,
     state: ProcessState,
     sp: usize,
-    stack: [8192]u8,
+    stack: [8192]u8 align(16),
 };
 
 fn switchContext(prev_sp: *usize, next_sp: *const usize) callconv(.naked) void {
@@ -37,7 +37,7 @@ fn switchContext(prev_sp: *usize, next_sp: *const usize) callconv(.naked) void {
 
     asm volatile (
     // Save callee-saved registers onto the current process's stack.
-        \\addi sp, sp, -13 * 4
+        \\addi sp, sp, -16 * 4
         \\sw ra,  0  * 4(sp)
         \\sw s0,  1  * 4(sp)
         \\sw s1,  2  * 4(sp)
@@ -70,7 +70,7 @@ fn switchContext(prev_sp: *usize, next_sp: *const usize) callconv(.naked) void {
         \\lw s9,  10 * 4(sp)
         \\lw s10, 11 * 4(sp)
         \\lw s11, 12 * 4(sp)
-        \\addi sp, sp, 13 * 4
+        \\addi sp, sp, 16 * 4
         \\ret
     );
 }
@@ -95,6 +95,7 @@ fn createProcess(pc: usize) *Process {
 
     if (free_proc) |proc| {
         var sp: [*]usize = @ptrCast(@alignCast(proc.stack[0..].ptr + proc.stack.len));
+        sp -= 3;
         sp -= 1;
         sp[0] = 0; // s11
         sp -= 1;
