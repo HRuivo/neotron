@@ -48,6 +48,11 @@ fn yield() void {
         return;
     }
 
+    asm volatile ("csrw sscratch, %[sscratch]"
+        :
+        : [sscratch] "r" (@intFromPtr(&next.stack[next.stack.len - 1])),
+    );
+
     const prev: *Process = current_proc;
     current_proc = next;
     contextSwitch(&prev.sp, &next.sp);
@@ -180,6 +185,7 @@ fn aProcEntry() void {
     console.print("\n[KERNEL] starting process A\n", .{}) catch {};
     while (true) {
         console.print("hello from proc A {d}\n", .{proc_a.pid}) catch {};
+        delay();
         yield();
     }
 }
@@ -188,6 +194,7 @@ fn bProcEntry() void {
     console.print("[KERNEL] starting process B\n", .{}) catch {};
     while (true) {
         console.print("hello from proc B {d}\n", .{proc_b.pid}) catch {};
+        delay();
         yield();
     }
 }
@@ -196,6 +203,7 @@ fn cProcEntry() void {
     console.print("[KERNEL] starting process C\n", .{}) catch {};
     while (true) {
         console.print("hello from proc {d}\n", .{proc_c.pid}) catch {};
+        delay();
         yield();
     }
 }
@@ -284,7 +292,8 @@ const TrapFrame = packed struct {
 
 fn kernelEntry() align(4) callconv(.naked) void {
     asm volatile (
-        \\csrw sscratch, sp
+        \\csrrw sp, sscratch, sp
+        \\
         \\addi sp, sp, -128
         \\sw ra, 4 * 0(sp)
         \\sw gp,  4 * 1(sp)
@@ -319,6 +328,9 @@ fn kernelEntry() align(4) callconv(.naked) void {
         \\
         \\csrr a0, sscratch
         \\sw a0, 4 * 30(sp)
+        \\
+        \\addi a0, sp, 4 * 31
+        \\csrw sscratch, a0
         \\
         \\mv a0, sp
         \\call handleTrap
