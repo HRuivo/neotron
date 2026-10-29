@@ -8,11 +8,129 @@ const stack_top = @extern([*]align(16) u8, .{ .name = "__stack_top" });
 const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
 const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
 
+pub const panic = std.debug.FullPanic(kernelPanic);
+
 var heap: std.heap.FixedBufferAllocator = undefined;
 
 const PAGE_SIZE: usize = 4096;
+const PROCS_MAX: usize = 8;
 
-pub const panic = std.debug.FullPanic(kernelPanic);
+var processes: [PROCS_MAX]Process = undefined;
+
+const ProcessState = enum {
+    Unused,
+    Runnable,
+};
+
+const Process = struct {
+    pid: u32,
+    state: ProcessState,
+    sp: usize,
+    stack: [8192]u8,
+};
+
+fn switchContext(prev_sp: *usize, next_sp: *const usize) callconv(.naked) void {
+    // a0 = prev_sp
+    // a1 = next_sp
+    _ = prev_sp;
+    _ = next_sp;
+
+    asm volatile (
+    // Save callee-saved registers onto the current process's stack.
+        \\addi sp, sp, -13 * 4
+        \\sw ra,  0  * 4(sp)
+        \\sw s0,  1  * 4(sp)
+        \\sw s1,  2  * 4(sp)
+        \\sw s2,  3  * 4(sp)
+        \\sw s3,  4  * 4(sp)
+        \\sw s4,  5  * 4(sp)
+        \\sw s5,  6  * 4(sp)
+        \\sw s6,  7  * 4(sp)
+        \\sw s7,  8  * 4(sp)
+        \\sw s8,  9  * 4(sp)
+        \\sw s9,  10 * 4(sp)
+        \\sw s10, 11 * 4(sp)
+        \\sw s11, 12 * 4(sp)
+
+        // Switch the stack pointer.
+        \\sw sp, (a0)
+        \\lw sp, (a1)
+
+        // Restore callee-saved registers from the next process's stack.
+        \\lw ra,  0  * 4(sp)
+        \\lw s0,  1  * 4(sp)
+        \\lw s1,  2  * 4(sp)
+        \\lw s2,  3  * 4(sp)
+        \\lw s3,  4  * 4(sp)
+        \\lw s4,  5  * 4(sp)
+        \\lw s5,  6  * 4(sp)
+        \\lw s6,  7  * 4(sp)
+        \\lw s7,  8  * 4(sp)
+        \\lw s8,  9  * 4(sp)
+        \\lw s9,  10 * 4(sp)
+        \\lw s10, 11 * 4(sp)
+        \\lw s11, 12 * 4(sp)
+        \\addi sp, sp, 13 * 4
+        \\ret
+    );
+}
+
+fn contextSwitch(prev_sp: *usize, next_sp: *const usize) void {
+    const switch_fn: *const fn (*usize, *const usize) callconv(.c) void =
+        @ptrCast(&switchContext);
+    @call(.never_inline, switch_fn, .{ prev_sp, next_sp });
+}
+
+fn createProcess(pc: usize) *Process {
+    var free_proc: ?*Process = null;
+
+    var i: usize = 0;
+    for (&processes) |*process| {
+        if (process.state == .Unused) {
+            free_proc = process;
+            break;
+        }
+        i += 1;
+    }
+
+    if (free_proc) |proc| {
+        var sp: [*]usize = @ptrCast(@alignCast(proc.stack[0..].ptr + proc.stack.len));
+        sp -= 1;
+        sp[0] = 0; // s11
+        sp -= 1;
+        sp[0] = 0; // s10
+        sp -= 1;
+        sp[0] = 0; // s9
+        sp -= 1;
+        sp[0] = 0; // s8
+        sp -= 1;
+        sp[0] = 0; // s7
+        sp -= 1;
+        sp[0] = 0; // s6
+        sp -= 1;
+        sp[0] = 0; // s5
+        sp -= 1;
+        sp[0] = 0; // s4
+        sp -= 1;
+        sp[0] = 0; // s3
+        sp -= 1;
+        sp[0] = 0; // s2
+        sp -= 1;
+        sp[0] = 0; // s1
+        sp -= 1;
+        sp[0] = 0; // s0
+        sp -= 1;
+        sp[0] = pc; // ra
+
+        proc.pid = i + 1;
+        proc.state = .Runnable;
+        proc.sp = @intFromPtr(sp);
+
+        return proc;
+    }
+
+    @panic("no free process slots");
+}
 
 fn kernelPanic(message: []const u8, return_address: ?usize) noreturn {
     _ = console.writeBytes("\nKERNEL PANIC: ") catch 0;
@@ -33,35 +151,71 @@ export fn boot() linksection(".text.boot") callconv(.naked) void {
     );
 }
 
+fn aProcEntry() void {
+    console.print("\n[KERNEL] starting process A\n", .{}) catch {};
+    while (true) {
+        console.print("hello from proc {d}\n", .{proc_a.pid}) catch {};
+        contextSwitch(&proc_a.sp, &proc_b.sp);
+        delay();
+    }
+}
+
+fn bProcEntry() void {
+    console.print("[KERNEL] starting process B\n", .{}) catch {};
+    while (true) {
+        console.print("hello from proc {d}\n", .{proc_b.pid}) catch {};
+        contextSwitch(&proc_b.sp, &proc_c.sp);
+        delay();
+    }
+}
+
+fn cProcEntry() void {
+    console.print("[KERNEL] starting process C\n", .{}) catch {};
+    while (true) {
+        console.print("hello from proc {d}\n", .{proc_c.pid}) catch {};
+        contextSwitch(&proc_c.sp, &proc_a.sp);
+        delay();
+    }
+}
+
+fn delay() void {
+    for (0..300000000) |_| {
+        asm volatile ("nop");
+    }
+}
+
+var proc_a: *Process = undefined;
+var proc_b: *Process = undefined;
+var proc_c: *Process = undefined;
+
 export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
 
+    for (&processes) |*process| {
+        process.* = .{
+            .pid = 0,
+            .state = .Unused,
+            .sp = 0,
+            .stack = undefined,
+        };
+    }
+
     const heap_memory = free_ram[0 .. free_ram_end - free_ram];
     heap = std.heap.FixedBufferAllocator.init(heap_memory);
-    const allocator = heap.allocator();
 
-    const page = allocator.alignedAlloc(
-        u8,
-        .fromByteUnits(PAGE_SIZE),
-        PAGE_SIZE,
-    ) catch @panic("out of RAM");
+    proc_a = createProcess(@intFromPtr(&aProcEntry));
+    proc_b = createProcess(@intFromPtr(&bProcEntry));
+    proc_c = createProcess(@intFromPtr(&cProcEntry));
 
-    const paddr = @intFromPtr(page.ptr);
-
-    console.print("\nallocPages test: paddr0=0x{x}\n", .{paddr}) catch {};
-
-    // writeCsr("stvec", @intFromPtr(&kernelEntry));
-    // asm volatile ("unimp");
+    aProcEntry();
 
     console.print(
         "\n\nHello World from custom Writer! with number: {d}\nstack_top:\n{*}\n 0x{x}\n\n",
         .{ 42, stack_top, @intFromPtr(stack_top) },
     ) catch @panic("failed to write boot message");
 
-    @panic("test panic");
-
-    //while (true) asm volatile ("");
+    while (true) asm volatile ("");
 }
 
 const TrapFrame = packed struct {

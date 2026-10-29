@@ -1,7 +1,7 @@
 const std = @import("std");
 const sbi = @import("sbi.zig");
 
-fn putChar(ch: u8) !void {
+pub fn putChar(ch: u8) !void {
     const result = sbi.sbiCall(ch, 0, 0, 0, 0, 0, 0, 1);
     if (result.err < 0) {
         return error.ConsoleWriteFailed;
