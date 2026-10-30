@@ -36,6 +36,8 @@ export fn main() void {
         const command = buff[0..len];
         if (std.mem.eql(u8, command, "hello")) {
             user.putString("Hello world from shell!\n");
+        } else if (std.mem.eql(u8, command, "quit")) {
+            user.exit();
         } else {
             user.putString("unknown command!\n");
         }

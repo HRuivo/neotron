@@ -2,8 +2,9 @@ const syscall = @import("syscall.zig");
 
 const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
 
-export fn exit() noreturn {
-    while (true) {}
+pub export fn exit() noreturn {
+    _ = sysCall(.exit, 0, 0, 0);
+    unreachable;
 }
 
 pub fn putChar(ch: u8) void {

@@ -42,6 +42,7 @@ const shell_image = @embedFile("shell_image");
 const ProcessState = enum {
     Unused,
     Runnable,
+    Exited,
 };
 
 const Process = struct {
@@ -474,6 +475,12 @@ fn handleSyscall(tf: *TrapFrame) void {
 
                 yield();
             }
+        },
+        @backingInt(syscall.Number.exit) => {
+            console.print("process {d} exited\n", .{current_proc.pid}) catch {};
+            current_proc.state = .Exited;
+            yield();
+            @panic("exited process resumed");
         },
         else => std.debug.panic("unexpected syscall a3={x}", .{tf.a3}),
     }
