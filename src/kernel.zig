@@ -83,7 +83,7 @@ fn yield() void {
 
     asm volatile ("csrw sscratch, %[sscratch]"
         :
-        : [sscratch] "r" (@intFromPtr(&next.stack[next.stack.len - 1])),
+        : [sscratch] "r" (@intFromPtr(next.stack[0..].ptr + next.stack.len)),
     );
 
     const prev: *Process = current_proc;
