@@ -15,6 +15,20 @@ var heap: std.heap.FixedBufferAllocator = undefined;
 const PAGE_SIZE: usize = 4096;
 const PageTable = [1024]u32;
 const PROCS_MAX: usize = 8;
+const USER_BASE: usize = 0x0100_0000;
+const SSTATUS_SPIE: usize = 1 << 5;
+
+const PageFlags = struct {
+    const valid: u32 = 1 << 0;
+    const read: u32 = 1 << 1;
+    const write: u32 = 1 << 2;
+    const execute: u32 = 1 << 3;
+    const user: u32 = 1 << 4;
+
+    const rw: u32 = read | write;
+    const rx: u32 = read | execute;
+    const rwx: u32 = read | write | execute;
+};
 
 var processes: [PROCS_MAX]Process = undefined;
 
@@ -145,46 +159,28 @@ export fn boot() linksection(".text.boot") callconv(.naked) void {
     );
 }
 
-fn aProcEntry() void {
-    console.print("\n[KERNEL] starting process A\n", .{}) catch {};
-    while (true) {
-        console.print("hello from proc A {d}\n", .{proc_a.pid}) catch {};
-        delay();
-        yield();
-    }
-}
-
-fn bProcEntry() void {
-    console.print("[KERNEL] starting process B\n", .{}) catch {};
-    while (true) {
-        console.print("hello from proc B {d}\n", .{proc_b.pid}) catch {};
-        delay();
-        yield();
-    }
-}
-
-fn cProcEntry() void {
-    console.print("[KERNEL] starting process C\n", .{}) catch {};
-    while (true) {
-        console.print("hello from proc {d}\n", .{proc_c.pid}) catch {};
-        delay();
-        yield();
-    }
-}
-
 fn delay() void {
     for (0..30000000) |_| {
         asm volatile ("nop");
     }
 }
 
-var proc_a: *Process = undefined;
-var proc_b: *Process = undefined;
-var proc_c: *Process = undefined;
+fn userEntry() callconv(.naked) noreturn {
+    asm volatile (
+        \\csrw sepc, %[sepc]
+        \\csrw sstatus, %[sstatus]
+        \\sret
+        :
+        : [sepc] "r" (USER_BASE),
+          [sstatus] "r" (SSTATUS_SPIE),
+    );
+
+    unreachable;
+}
 
 fn createProcess(
     allocator: std.mem.Allocator,
-    pc: usize,
+    image: []const u8,
 ) *Process {
     var free_proc: ?*Process = null;
 
@@ -209,7 +205,31 @@ fn createProcess(
 
         var addr: usize = 0x8020_0000;
         while (addr < @intFromPtr(free_ram_end)) : (addr += PAGE_SIZE) {
-            mapPage(allocator, root, addr, addr, 0b1111);
+            mapPage(allocator, root, addr, addr, PageFlags.rwx);
+        }
+
+        var offset: usize = 0;
+        while (offset < image.len) : (offset += PAGE_SIZE) {
+            // allocate, zero, copy and map one page.
+            const page = allocator.alignedAlloc(
+                u8,
+                .fromByteUnits(PAGE_SIZE),
+                PAGE_SIZE,
+            ) catch @panic("out of memory for application page");
+            @memset(page, 0);
+
+            const remaining = image.len - offset;
+            const copy_size = @min(remaining, PAGE_SIZE);
+
+            @memcpy(page[0..copy_size], image[offset .. offset + copy_size]);
+
+            mapPage(
+                allocator,
+                root,
+                USER_BASE + offset,
+                @intFromPtr(page.ptr),
+                PageFlags.rwx | PageFlags.user,
+            );
         }
 
         var sp: [*]usize = @ptrCast(@alignCast(proc.stack[0..].ptr + proc.stack.len));
@@ -239,7 +259,7 @@ fn createProcess(
         sp -= 1;
         sp[0] = 0; // s0
         sp -= 1;
-        sp[0] = pc; // ra
+        sp[0] = @intFromPtr(&userEntry); // ra
 
         proc.pid = i + 1;
         proc.state = .Runnable;
@@ -264,7 +284,7 @@ fn mapPage(
     }
 
     const vpn1 = (vaddr >> 22) & 0x3ff;
-    if ((root[vpn1] & 0b1) == 0) {
+    if ((root[vpn1] & PageFlags.valid) == 0) {
         const new_table = allocator.alignedAlloc(
             u32,
             .fromByteUnits(PAGE_SIZE),
@@ -282,7 +302,7 @@ fn mapPage(
     const table: *PageTable = @ptrFromInt(table_paddr);
     const vpn0 = (vaddr >> 12) & 0x3ff;
     const ppn = paddr >> 12;
-    table[vpn0] = (ppn << 10) | flags | 1;
+    table[vpn0] = (ppn << 10) | flags | PageFlags.valid;
 }
 
 export fn kernelMain() noreturn {
@@ -304,18 +324,11 @@ export fn kernelMain() noreturn {
         };
     }
 
-    idle_proc = createProcess(heap.allocator(), 0);
+    idle_proc = createProcess(heap.allocator(), &.{});
     idle_proc.pid = 0;
     current_proc = idle_proc;
 
-    proc_a = createProcess(heap.allocator(), @intFromPtr(&aProcEntry));
-    proc_b = createProcess(heap.allocator(), @intFromPtr(&bProcEntry));
-    proc_c = createProcess(heap.allocator(), @intFromPtr(&cProcEntry));
-
-    console.print(
-        "\n\nHello World from custom Writer! with number: {d}\nstack_top:\n{*}\n 0x{x}\n\n",
-        .{ 42, stack_top, @intFromPtr(stack_top) },
-    ) catch @panic("failed to write boot message");
+    _ = createProcess(heap.allocator(), shell_image);
 
     console.print("shell image: {d} bytes, first byte: 0x{x}\n", .{
         shell_image.len,
