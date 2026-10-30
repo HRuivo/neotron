@@ -1,3 +1,5 @@
+const syscall = @import("syscall.zig");
+
 const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
 
 export fn exit() noreturn {
@@ -5,7 +7,7 @@ export fn exit() noreturn {
 }
 
 pub fn putChar(ch: u8) void {
-    _ = ch;
+    _ = sysCall(syscall.SYS_PUTCHAR, ch, 0, 0);
 }
 
 export fn start() linksection(".text.start") callconv(.naked) void {
@@ -16,4 +18,23 @@ export fn start() linksection(".text.start") callconv(.naked) void {
         :
         : [stack] "r" (stack_top),
     );
+}
+
+pub fn sysCall(
+    sysno: usize,
+    arg0: usize,
+    arg1: usize,
+    arg2: usize,
+) usize {
+    var a0: usize = undefined;
+
+    asm volatile ("ecall"
+        : [a0] "={a0}" (a0),
+        : [arg0] "{a0}" (arg0),
+          [arg1] "{a1}" (arg1),
+          [arg2] "{a2}" (arg2),
+          [sysno] "{a3}" (sysno),
+        : .{ .memory = true });
+
+    return a0;
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const console = @import("console.zig");
+const syscall = @import("syscall.zig");
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
@@ -17,6 +18,7 @@ const PageTable = [1024]u32;
 const PROCS_MAX: usize = 8;
 const USER_BASE: usize = 0x0100_0000;
 const SSTATUS_SPIE: usize = 1 << 5;
+const SCAUSE_ECALL: usize = 0x8;
 
 const PageFlags = struct {
     const valid: u32 = 1 << 0;
@@ -458,16 +460,32 @@ fn kernelEntry() align(4) callconv(.naked) void {
     );
 }
 
-export fn handleTrap(trap_frame: *TrapFrame) noreturn {
-    _ = trap_frame;
+fn handleSyscall(tf: *TrapFrame) void {
+    switch (tf.a3) {
+        syscall.SYS_PUTCHAR => {
+            console.putChar(@truncate(tf.a0)) catch @panic("console write failed");
+        },
+        else => std.debug.panic("unexpected syscall a3={x}", .{tf.a3}),
+    }
+}
 
+export fn handleTrap(tf: *TrapFrame) void {
     const scause = readCsr("scause");
     const stval = readCsr("stval");
-    const user_pc = readCsr("sepc");
-    std.debug.panic(
-        "unexpected trap scause=0x{x}, stval=0x{x}, sepc=0x{x}",
-        .{ scause, stval, user_pc },
-    );
+    var user_pc: usize = readCsr("sepc");
+
+    switch (scause) {
+        SCAUSE_ECALL => {
+            handleSyscall(tf);
+            user_pc += 4;
+        },
+        else => std.debug.panic(
+            "unexpected trap scause=0x{x}, stval=0x{x}, sepc=0x{x}",
+            .{ scause, stval, user_pc },
+        ),
+    }
+
+    writeCsr("sepc", user_pc);
 }
 
 pub inline fn readCsr(comptime reg: []const u8) usize {
