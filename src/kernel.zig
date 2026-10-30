@@ -1,6 +1,7 @@
 const std = @import("std");
 const console = @import("console.zig");
 const syscall = @import("syscall.zig");
+const disk = @import("disk.zig");
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
@@ -311,11 +312,20 @@ fn mapPage(
 export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
+    writeCsr("stvec", @intFromPtr(&kernelEntry));
 
     const heap_memory = free_ram[0 .. free_ram_end - free_ram];
     heap = std.heap.FixedBufferAllocator.init(heap_memory);
 
-    writeCsr("stvec", @intFromPtr(&kernelEntry));
+    disk.init(heap.allocator());
+    var buffer: [512]u8 = undefined;
+    disk.readWriteDisk(&buffer, 0, false);
+    console.print("first sector: {s}\n", .{buffer[0..]}) catch {};
+
+    @memset(buffer[0..], 0);
+    const message = "hello from kernel!!!\n";
+    @memcpy(buffer[0..message.len], message);
+    disk.readWriteDisk(&buffer, 0, true);
 
     for (&processes) |*process| {
         process.* = .{
