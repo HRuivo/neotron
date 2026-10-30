@@ -462,8 +462,18 @@ fn kernelEntry() align(4) callconv(.naked) void {
 
 fn handleSyscall(tf: *TrapFrame) void {
     switch (tf.a3) {
-        syscall.SYS_PUTCHAR => {
+        @backingInt(syscall.Number.putchar) => {
             console.putChar(@truncate(tf.a0)) catch @panic("console write failed");
+        },
+        @backingInt(syscall.Number.getchar) => {
+            while (true) {
+                if (console.getChar()) |ch| {
+                    tf.a0 = ch;
+                    break;
+                }
+
+                yield();
+            }
         },
         else => std.debug.panic("unexpected syscall a3={x}", .{tf.a3}),
     }

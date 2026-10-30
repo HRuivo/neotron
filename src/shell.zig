@@ -1,3 +1,4 @@
+const std = @import("std");
 const user = @import("user.zig");
 
 comptime {
@@ -5,14 +6,38 @@ comptime {
 }
 
 export fn main() void {
-    // test user access to kernel memory
-    // const kernel_memory: *volatile u32 = @ptrFromInt(0x8020_0000);
-    // kernel_memory.* = 0x1234;
+    var buff: [128]u8 = undefined;
+    var len: usize = 0;
 
-    const message: []const u8 = "Hello World from shell!\n";
-    for (message) |c| {
-        user.putChar(c);
+    prompt: while (true) {
+        len = 0;
+        user.putString("> ");
+
+        while (true) {
+            const ch = user.getChar();
+            user.putChar(ch);
+
+            switch (ch) {
+                '\r' => {
+                    user.putChar('\n');
+                    break;
+                },
+                else => {
+                    if (len >= buff.len) {
+                        user.putString("command line too long\n");
+                        continue :prompt;
+                    }
+                    buff[len] = ch;
+                    len += 1;
+                },
+            }
+        }
+
+        const command = buff[0..len];
+        if (std.mem.eql(u8, command, "hello")) {
+            user.putString("Hello world from shell!\n");
+        } else {
+            user.putString("unknown command!\n");
+        }
     }
-
-    while (true) {}
 }

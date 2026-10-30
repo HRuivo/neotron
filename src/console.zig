@@ -8,6 +8,12 @@ pub fn putChar(ch: u8) !void {
     }
 }
 
+pub fn getChar() ?u8 {
+    const result = sbi.sbiCall(0, 0, 0, 0, 0, 0, 0, 2);
+    if (result.err < 0) return null;
+    return @intCast(result.err);
+}
+
 pub fn writeBytes(bytes: []const u8) !usize {
     for (bytes) |b| {
         try putChar(b);

@@ -7,7 +7,17 @@ export fn exit() noreturn {
 }
 
 pub fn putChar(ch: u8) void {
-    _ = sysCall(syscall.SYS_PUTCHAR, ch, 0, 0);
+    _ = sysCall(.putchar, ch, 0, 0);
+}
+
+pub fn putString(string: []const u8) void {
+    for (string) |ch| {
+        putChar(ch);
+    }
+}
+
+pub fn getChar() u8 {
+    return @truncate(sysCall(.getchar, 0, 0, 0));
 }
 
 export fn start() linksection(".text.start") callconv(.naked) void {
@@ -21,7 +31,7 @@ export fn start() linksection(".text.start") callconv(.naked) void {
 }
 
 pub fn sysCall(
-    sysno: usize,
+    number: syscall.Number,
     arg0: usize,
     arg1: usize,
     arg2: usize,
@@ -33,7 +43,7 @@ pub fn sysCall(
         : [arg0] "{a0}" (arg0),
           [arg1] "{a1}" (arg1),
           [arg2] "{a2}" (arg2),
-          [sysno] "{a3}" (sysno),
+          [sysno] "{a3}" (@backingInt(number)),
         : .{ .memory = true });
 
     return a0;
