@@ -21,6 +21,8 @@ var processes: [PROCS_MAX]Process = undefined;
 var current_proc: *Process = undefined;
 var idle_proc: *Process = undefined;
 
+const shell_image = @embedFile("shell_image");
+
 const ProcessState = enum {
     Unused,
     Runnable,
@@ -314,6 +316,15 @@ export fn kernelMain() noreturn {
         "\n\nHello World from custom Writer! with number: {d}\nstack_top:\n{*}\n 0x{x}\n\n",
         .{ 42, stack_top, @intFromPtr(stack_top) },
     ) catch @panic("failed to write boot message");
+
+    console.print("shell image: {d} bytes, first byte: 0x{x}\n", .{
+        shell_image.len,
+        shell_image[0],
+    }) catch {};
+
+    console.print("embedded shell address: 0x{x}\n", .{
+        @intFromPtr(shell_image),
+    }) catch {};
 
     yield();
     @panic("switched to idle process");

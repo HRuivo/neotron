@@ -107,5 +107,9 @@ fn buildKernel(b: *std.Build) []const u8 {
     );
     b.default_step.dependOn(&install_shell_bin.step);
 
+    kernel.root_module.addAnonymousImport("shell_image", .{
+        .root_source_file = shell_bin_output,
+    });
+
     return copy_kernel_object.dest_rel_path;
 }
