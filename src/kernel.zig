@@ -13,6 +13,7 @@ pub const panic = std.debug.FullPanic(kernelPanic);
 var heap: std.heap.FixedBufferAllocator = undefined;
 
 const PAGE_SIZE: usize = 4096;
+const PageTable = [1024]u32;
 const PROCS_MAX: usize = 8;
 
 var processes: [PROCS_MAX]Process = undefined;
@@ -29,6 +30,7 @@ const Process = struct {
     pid: u32,
     state: ProcessState,
     sp: usize,
+    page_table: *PageTable,
     stack: [8192]u8 align(16),
 };
 
@@ -47,6 +49,18 @@ fn yield() void {
     if (next == current_proc) {
         return;
     }
+
+    const ppn = @intFromPtr(next.page_table) >> 12;
+    const sv32 = @as(usize, 1) << 31;
+    const satp_value = sv32 | ppn;
+
+    asm volatile (
+        \\sfence.vma
+        \\csrw satp, %[value]
+        \\sfence.vma
+        :
+        : [value] "r" (satp_value),
+        : .{ .memory = true });
 
     asm volatile ("csrw sscratch, %[sscratch]"
         :
@@ -110,58 +124,6 @@ fn contextSwitch(prev_sp: *usize, next_sp: *const usize) void {
     @call(.never_inline, switch_fn, .{ prev_sp, next_sp });
 }
 
-fn createProcess(pc: usize) *Process {
-    var free_proc: ?*Process = null;
-
-    var i: usize = 0;
-    for (&processes) |*process| {
-        if (process.state == .Unused) {
-            free_proc = process;
-            break;
-        }
-        i += 1;
-    }
-
-    if (free_proc) |proc| {
-        var sp: [*]usize = @ptrCast(@alignCast(proc.stack[0..].ptr + proc.stack.len));
-        sp -= 3;
-        sp -= 1;
-        sp[0] = 0; // s11
-        sp -= 1;
-        sp[0] = 0; // s10
-        sp -= 1;
-        sp[0] = 0; // s9
-        sp -= 1;
-        sp[0] = 0; // s8
-        sp -= 1;
-        sp[0] = 0; // s7
-        sp -= 1;
-        sp[0] = 0; // s6
-        sp -= 1;
-        sp[0] = 0; // s5
-        sp -= 1;
-        sp[0] = 0; // s4
-        sp -= 1;
-        sp[0] = 0; // s3
-        sp -= 1;
-        sp[0] = 0; // s2
-        sp -= 1;
-        sp[0] = 0; // s1
-        sp -= 1;
-        sp[0] = 0; // s0
-        sp -= 1;
-        sp[0] = pc; // ra
-
-        proc.pid = i + 1;
-        proc.state = .Runnable;
-        proc.sp = @intFromPtr(sp);
-
-        return proc;
-    }
-
-    @panic("no free process slots");
-}
-
 fn kernelPanic(message: []const u8, return_address: ?usize) noreturn {
     _ = console.writeBytes("\nKERNEL PANIC: ") catch 0;
     _ = console.writeBytes(message) catch 0;
@@ -218,14 +180,115 @@ var proc_a: *Process = undefined;
 var proc_b: *Process = undefined;
 var proc_c: *Process = undefined;
 
+fn createProcess(
+    allocator: std.mem.Allocator,
+    pc: usize,
+) *Process {
+    var free_proc: ?*Process = null;
+
+    var i: usize = 0;
+    for (&processes) |*process| {
+        if (process.state == .Unused) {
+            free_proc = process;
+            break;
+        }
+        i += 1;
+    }
+
+    if (free_proc) |proc| {
+        const entries = allocator.alignedAlloc(
+            u32,
+            .fromByteUnits(PAGE_SIZE),
+            1024,
+        ) catch @panic("out of memory for page table");
+        @memset(entries, 0);
+
+        const root: *PageTable = entries[0..1024];
+
+        var addr: usize = 0x8020_0000;
+        while (addr < @intFromPtr(free_ram_end)) : (addr += PAGE_SIZE) {
+            mapPage(allocator, root, addr, addr, 0b1111);
+        }
+
+        var sp: [*]usize = @ptrCast(@alignCast(proc.stack[0..].ptr + proc.stack.len));
+        sp -= 3;
+        sp -= 1;
+        sp[0] = 0; // s11
+        sp -= 1;
+        sp[0] = 0; // s10
+        sp -= 1;
+        sp[0] = 0; // s9
+        sp -= 1;
+        sp[0] = 0; // s8
+        sp -= 1;
+        sp[0] = 0; // s7
+        sp -= 1;
+        sp[0] = 0; // s6
+        sp -= 1;
+        sp[0] = 0; // s5
+        sp -= 1;
+        sp[0] = 0; // s4
+        sp -= 1;
+        sp[0] = 0; // s3
+        sp -= 1;
+        sp[0] = 0; // s2
+        sp -= 1;
+        sp[0] = 0; // s1
+        sp -= 1;
+        sp[0] = 0; // s0
+        sp -= 1;
+        sp[0] = pc; // ra
+
+        proc.pid = i + 1;
+        proc.state = .Runnable;
+        proc.sp = @intFromPtr(sp);
+        proc.page_table = root;
+
+        return proc;
+    }
+
+    @panic("no free process slots");
+}
+
+fn mapPage(
+    allocator: std.mem.Allocator,
+    root: *PageTable,
+    vaddr: usize,
+    paddr: usize,
+    flags: u32,
+) void {
+    if (!std.mem.isAligned(vaddr, PAGE_SIZE) or !std.mem.isAligned(paddr, PAGE_SIZE)) {
+        std.debug.panic("could not create a page table for an unaligned address: v{x} p{x}\n", .{ vaddr, paddr });
+    }
+
+    const vpn1 = (vaddr >> 22) & 0x3ff;
+    if ((root[vpn1] & 0b1) == 0) {
+        const new_table = allocator.alignedAlloc(
+            u32,
+            .fromByteUnits(PAGE_SIZE),
+            1024,
+        ) catch @panic("out of memory for page table");
+        @memset(new_table, 0);
+
+        const table_paddr = @intFromPtr(new_table.ptr);
+        const table_ppn = table_paddr >> 12;
+
+        root[vpn1] = (table_ppn << 10) | 0b1;
+    }
+
+    const table_paddr = (root[vpn1] >> 10) << 12;
+    const table: *PageTable = @ptrFromInt(table_paddr);
+    const vpn0 = (vaddr >> 12) & 0x3ff;
+    const ppn = paddr >> 12;
+    table[vpn0] = (ppn << 10) | flags | 1;
+}
+
 export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
 
     const heap_memory = free_ram[0 .. free_ram_end - free_ram];
     heap = std.heap.FixedBufferAllocator.init(heap_memory);
-
-    console.print("\n\n", .{}) catch {};
 
     writeCsr("stvec", @intFromPtr(&kernelEntry));
 
@@ -234,17 +297,18 @@ export fn kernelMain() noreturn {
             .pid = 0,
             .state = .Unused,
             .sp = 0,
+            .page_table = undefined,
             .stack = undefined,
         };
     }
 
-    idle_proc = createProcess(0);
+    idle_proc = createProcess(heap.allocator(), 0);
     idle_proc.pid = 0;
     current_proc = idle_proc;
 
-    proc_a = createProcess(@intFromPtr(&aProcEntry));
-    proc_b = createProcess(@intFromPtr(&bProcEntry));
-    proc_c = createProcess(@intFromPtr(&cProcEntry));
+    proc_a = createProcess(heap.allocator(), @intFromPtr(&aProcEntry));
+    proc_b = createProcess(heap.allocator(), @intFromPtr(&bProcEntry));
+    proc_c = createProcess(heap.allocator(), @intFromPtr(&cProcEntry));
 
     console.print(
         "\n\nHello World from custom Writer! with number: {d}\nstack_top:\n{*}\n 0x{x}\n\n",
