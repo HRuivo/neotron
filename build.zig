@@ -69,9 +69,43 @@ fn buildKernel(b: *std.Build) []const u8 {
     kernel.entry = .{ .symbol_name = "boot" };
 
     const copy_kernel_object = b.addInstallBinFile(kernel.getEmittedBin(), "kernel.elf");
-
     b.default_step.dependOn(&copy_kernel_object.step);
     copy_kernel_object.step.dependOn(&kernel.step);
+
+    const shell = b.addExecutable(.{
+        .name = "shell",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/shell.zig"),
+            .target = target,
+            .optimize = .small,
+            .strip = false,
+            .unwind_tables = .none,
+        }),
+    });
+    shell.setLinkerScript(b.path("linker/user.ld"));
+    shell.entry = .{ .symbol_name = "start" };
+
+    const install_shell = b.addInstallBinFile(
+        shell.getEmittedBin(),
+        "shell.elf",
+    );
+    b.default_step.dependOn(&install_shell.step);
+
+    const shell_bin = b.addSystemCommand(&.{
+        "llvm-objcopy",
+        "--set-section-flags",
+        ".bss=alloc,contents",
+        "-O",
+        "binary",
+    });
+    shell_bin.addFileArg(shell.getEmittedBin());
+    const shell_bin_output = shell_bin.addOutputFileArg("shell.bin");
+
+    const install_shell_bin = b.addInstallBinFile(
+        shell_bin_output,
+        "shell.bin",
+    );
+    b.default_step.dependOn(&install_shell_bin.step);
 
     return copy_kernel_object.dest_rel_path;
 }
