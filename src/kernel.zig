@@ -1,99 +1,28 @@
 const std = @import("std");
+
 const console = @import("console.zig");
 const syscall = @import("syscall");
+
+const process = @import("process.zig");
+
 const cpu = @import("arch/riscv32/cpu.zig");
-const disk = @import("drivers/disk.zig");
+const memory = @import("memory.zig");
 const gpu = @import("drivers/gpu.zig");
-const context = @import("arch/riscv32/context.zig");
+const disk = @import("drivers/disk.zig");
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
 const stack_top = @extern([*]align(16) u8, .{ .name = "__stack_top" });
-
 const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
 const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
 
 pub const panic = std.debug.FullPanic(kernelPanic);
 
-var heap: std.heap.FixedBufferAllocator = undefined;
-
-const PAGE_SIZE: usize = 4096;
-const PageTable = [1024]u32;
-const PROCS_MAX: usize = 8;
-const USER_BASE: usize = 0x0100_0000;
-const SSTATUS_SPIE: usize = 1 << 5;
 const SCAUSE_ECALL: usize = 0x8;
-
-const PageFlags = struct {
-    const valid: u32 = 1 << 0;
-    const read: u32 = 1 << 1;
-    const write: u32 = 1 << 2;
-    const execute: u32 = 1 << 3;
-    const user: u32 = 1 << 4;
-
-    const rw: u32 = read | write;
-    const rx: u32 = read | execute;
-    const rwx: u32 = read | write | execute;
-};
-
-var processes: [PROCS_MAX]Process = undefined;
-
-var current_proc: *Process = undefined;
-var idle_proc: *Process = undefined;
 
 const shell_image = @embedFile("shell_image");
 
-const ProcessState = enum {
-    Unused,
-    Runnable,
-    Exited,
-};
-
-const Process = struct {
-    pid: u32,
-    state: ProcessState,
-    sp: usize,
-    page_table: *PageTable,
-    stack: [8192]u8 align(16),
-};
-
-fn yield() void {
-    var next: *Process = idle_proc;
-
-    // Start after the current process and wrap around for round-robin scheduling.
-    for (1..PROCS_MAX + 1) |offset| {
-        const process = &processes[(current_proc.pid - 1 + offset) % PROCS_MAX];
-        if (process.state == .Runnable and process.pid > 0) {
-            next = process;
-            break;
-        }
-    }
-
-    if (next == current_proc) {
-        return;
-    }
-
-    const ppn = @intFromPtr(next.page_table) >> 12;
-    const sv32 = @as(usize, 1) << 31;
-    const satp_value = sv32 | ppn;
-
-    asm volatile (
-        \\sfence.vma
-        \\csrw satp, %[value]
-        \\sfence.vma
-        :
-        : [value] "r" (satp_value),
-        : .{ .memory = true });
-
-    asm volatile ("csrw sscratch, %[sscratch]"
-        :
-        : [sscratch] "r" (@intFromPtr(next.stack[0..].ptr + next.stack.len)),
-    );
-
-    const prev: *Process = current_proc;
-    current_proc = next;
-    context.contextSwitch(&prev.sp, &next.sp);
-}
+var heap: std.heap.FixedBufferAllocator = undefined;
 
 fn kernelPanic(message: []const u8, return_address: ?usize) noreturn {
     _ = console.writeBytes("\nKERNEL PANIC: ") catch 0;
@@ -120,129 +49,6 @@ fn delay() void {
     }
 }
 
-fn userEntry() callconv(.naked) noreturn {
-    asm volatile (
-        \\csrw sepc, %[sepc]
-        \\csrw sstatus, %[sstatus]
-        \\sret
-        :
-        : [sepc] "r" (USER_BASE),
-          [sstatus] "r" (SSTATUS_SPIE),
-    );
-
-    unreachable;
-}
-
-fn createProcess(
-    allocator: std.mem.Allocator,
-    image: []const u8,
-) *Process {
-    var free_proc: ?*Process = null;
-
-    var i: usize = 0;
-    for (&processes) |*process| {
-        if (process.state == .Unused) {
-            free_proc = process;
-            break;
-        }
-        i += 1;
-    }
-
-    if (free_proc) |proc| {
-        const entries = allocator.alignedAlloc(
-            u32,
-            .fromByteUnits(PAGE_SIZE),
-            1024,
-        ) catch @panic("out of memory for page table");
-        @memset(entries, 0);
-
-        const root: *PageTable = entries[0..1024];
-
-        var addr: usize = 0x8020_0000;
-        while (addr < @intFromPtr(free_ram_end)) : (addr += PAGE_SIZE) {
-            mapPage(
-                allocator,
-                root,
-                addr,
-                addr,
-                PageFlags.rwx,
-            );
-        }
-
-        var offset: usize = 0;
-        while (offset < image.len) : (offset += PAGE_SIZE) {
-            // allocate, zero, copy and map one page.
-            const page = allocator.alignedAlloc(
-                u8,
-                .fromByteUnits(PAGE_SIZE),
-                PAGE_SIZE,
-            ) catch @panic("out of memory for application page");
-            @memset(page, 0);
-
-            const remaining = image.len - offset;
-            const copy_size = @min(remaining, PAGE_SIZE);
-
-            @memcpy(page[0..copy_size], image[offset .. offset + copy_size]);
-
-            mapPage(
-                allocator,
-                root,
-                USER_BASE + offset,
-                @intFromPtr(page.ptr),
-                PageFlags.rwx | PageFlags.user,
-            );
-        }
-
-        const stack_end = @intFromPtr(&proc.stack) + proc.stack.len;
-        const initial_context: *context.Context = @ptrFromInt(stack_end - @sizeOf(context.Context));
-
-        initial_context.* = std.mem.zeroes(context.Context);
-        initial_context.ra = @intFromPtr(&userEntry);
-
-        proc.pid = i + 1;
-        proc.state = .Runnable;
-        proc.sp = @intFromPtr(initial_context);
-        proc.page_table = root;
-
-        return proc;
-    }
-
-    @panic("no free process slots");
-}
-
-fn mapPage(
-    allocator: std.mem.Allocator,
-    root: *PageTable,
-    vaddr: usize,
-    paddr: usize,
-    flags: u32,
-) void {
-    if (!std.mem.isAligned(vaddr, PAGE_SIZE) or !std.mem.isAligned(paddr, PAGE_SIZE)) {
-        std.debug.panic("could not create a page table for an unaligned address: v{x} p{x}\n", .{ vaddr, paddr });
-    }
-
-    const vpn1 = (vaddr >> 22) & 0x3ff;
-    if ((root[vpn1] & PageFlags.valid) == 0) {
-        const new_table = allocator.alignedAlloc(
-            u32,
-            .fromByteUnits(PAGE_SIZE),
-            1024,
-        ) catch @panic("out of memory for page table");
-        @memset(new_table, 0);
-
-        const table_paddr = @intFromPtr(new_table.ptr);
-        const table_ppn = table_paddr >> 12;
-
-        root[vpn1] = (table_ppn << 10) | 0b1;
-    }
-
-    const table_paddr = (root[vpn1] >> 10) << 12;
-    const table: *PageTable = @ptrFromInt(table_paddr);
-    const vpn0 = (vaddr >> 12) & 0x3ff;
-    const ppn = paddr >> 12;
-    table[vpn0] = (ppn << 10) | flags | PageFlags.valid;
-}
-
 export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
@@ -265,34 +71,11 @@ export fn kernelMain() noreturn {
     @memcpy(buffer[0..message.len], message);
     disk.readWriteDisk(&buffer, 0, true);
 
-    for (&processes) |*process| {
-        process.* = .{
-            .pid = 0,
-            .state = .Unused,
-            .sp = 0,
-            .page_table = undefined,
-            .stack = undefined,
-        };
-    }
+    process.init(heap.allocator());
+    _ = process.createProcess(heap.allocator(), shell_image);
 
-    idle_proc = createProcess(heap.allocator(), &.{});
-    idle_proc.pid = 0;
-    current_proc = idle_proc;
-
-    _ = createProcess(heap.allocator(), shell_image);
-
-    // console.print("shell image: {d} bytes, first byte: 0x{x}\n", .{
-    //     shell_image.len,
-    //     shell_image[0],
-    // }) catch {};
-
-    // console.print("embedded shell address: 0x{x}\n", .{
-    //     @intFromPtr(shell_image),
-    // }) catch {};
-
-    yield();
+    process.yield();
     @panic("switched to idle process");
-    //while (true) asm volatile ("");
 }
 
 const TrapFrame = packed struct {
@@ -421,14 +204,12 @@ fn handleSyscall(tf: *TrapFrame) void {
                     break;
                 }
 
-                yield();
+                process.yield();
             }
         },
         @backingInt(syscall.Number.exit) => {
-            console.print("process {d} exited\n", .{current_proc.pid}) catch {};
-            current_proc.state = .Exited;
-            yield();
-            @panic("exited process resumed");
+            console.print("process {d} exited\n", .{process.currentPid()}) catch {};
+            process.exitCurrent();
         },
         else => std.debug.panic("unexpected syscall a3={x}", .{tf.a3}),
     }
