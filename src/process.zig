@@ -1,5 +1,6 @@
 const std = @import("std");
 const memory = @import("memory.zig");
+const cpu = @import("arch/riscv32/cpu.zig");
 const context = @import("arch/riscv32/context.zig");
 
 const PROCS_MAX: usize = 8;
@@ -58,22 +59,9 @@ pub fn yield() void {
         return;
     }
 
-    const ppn = @intFromPtr(next.page_table) >> 12;
-    const sv32 = @as(usize, 1) << 31;
-    const satp_value = sv32 | ppn;
+    cpu.activatePageTable(@intFromPtr(next.page_table));
 
-    asm volatile (
-        \\sfence.vma
-        \\csrw satp, %[value]
-        \\sfence.vma
-        :
-        : [value] "r" (satp_value),
-        : .{ .memory = true });
-
-    asm volatile ("csrw sscratch, %[sscratch]"
-        :
-        : [sscratch] "r" (@intFromPtr(next.stack[0..].ptr + next.stack.len)),
-    );
+    cpu.writeCsr("sscratch", @intFromPtr(next.stack[0..].ptr + next.stack.len));
 
     const prev: *Process = current_proc;
     current_proc = next;
