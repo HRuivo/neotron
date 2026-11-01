@@ -7,6 +7,8 @@ const process = @import("process.zig");
 const gpu = @import("drivers/gpu.zig");
 const disk = @import("drivers/disk.zig");
 
+const demo = @import("graphics/demo.zig");
+
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
 const stack_top = @extern([*]align(16) u8, .{ .name = "__stack_top" });
@@ -57,6 +59,9 @@ export fn kernelMain() noreturn {
 
     // Display
     gpu.init(allocator);
+
+    demo.draw(gpu.getFramebuffer());
+    gpu.present();
 
     @memset(buffer[0..], 0);
     const message = "hello from kernel!!!\n";

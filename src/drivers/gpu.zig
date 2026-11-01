@@ -3,7 +3,6 @@ const console = @import("../console.zig");
 const virtio = @import("virtio.zig");
 const graphics = @import("../graphics/framebuffer.zig");
 const Framebuffer = graphics.Framebuffer;
-const Colour = graphics.Colour;
 
 const MMIO_BASE: usize = 0x10002000;
 const DEVICE_ID: usize = 16;
@@ -273,24 +272,18 @@ pub fn init(allocator: std.mem.Allocator) void {
 
     framebuffer = Framebuffer.init(allocator, 1280, 800) catch @panic("failed to allocate framebuffer");
 
-    for (0..framebuffer.height) |y| {
-        for (0..framebuffer.width) |x| {
-            framebuffer.putPixel(.{ .x = x, .y = y }, .{ .r = 19, .g = 128, .b = 134 });
-        }
-    }
-
     createResource2D(.b8g8r8a8, framebuffer.width, framebuffer.height);
     attachBackingResource();
-    transferToHost2D();
-    setScanout(framebuffer.width, framebuffer.height, 0, 1);
-    resourceFlush();
+    setScanout(framebuffer.width, framebuffer.height, 0, RESOURCE_ID);
+}
 
-    framebuffer.drawRect(.{ .x = 1000, .y = 500 }, .{ .x = 350, .y = 120 }, Colour.white());
+pub fn present() void {
     transferToHost2D();
-    framebuffer.drawRect(.{ .x = 100, .y = 100 }, .{ .x = 350, .y = 120 }, Colour.red());
-    transferToHost2D();
-
     resourceFlush();
+}
+
+pub fn getFramebuffer() *Framebuffer {
+    return &framebuffer;
 }
 
 fn sendControl(request: anytype, response: anytype) void {
