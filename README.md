@@ -4,6 +4,13 @@ A small experimental RISC-V kernel written in Zig. It runs on QEMU's 32-bit `vir
 
 Largely based on the OS in 1000 Lines tutorial.
 
+- Supervisor-mode kernel running through OpenSBI.
+- Sv32 page tables and cooperative process scheduling.
+- User-mode shell with console and exit syscalls.
+- VirtIO block and GPU drivers.
+- Framebuffer drawing with a temporary kernel graphics demo.
+- Build dependencies: Zig, qemu-system-riscv32, and llvm-objcopy.
+
 ## Build and run
 
 Requires Zig 0.17.0 and `qemu-system-riscv32`.
@@ -12,7 +19,3 @@ Requires Zig 0.17.0 and `qemu-system-riscv32`.
 zig build
 zig build run
 ```
-
-The build produces `zig-out/bin/kernel.elf`. The kernel currently prints an allocation test and a boot message, then deliberately panics.
-
-The linker layout is in `linker/kernel.ld`; source files are in `src/`. Notes on QEMU and debugging are in `docs/`.

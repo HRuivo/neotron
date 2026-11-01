@@ -1,11 +1,6 @@
-const syscall = @import("syscall.zig");
+const syscall = @import("syscall");
 
 const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
-
-pub export fn exit() noreturn {
-    _ = sysCall(.exit, 0, 0, 0);
-    unreachable;
-}
 
 pub fn putChar(ch: u8) void {
     _ = sysCall(.putchar, ch, 0, 0);
@@ -29,6 +24,11 @@ export fn start() linksection(".text.start") callconv(.naked) void {
         :
         : [stack] "r" (stack_top),
     );
+}
+
+pub export fn exit() noreturn {
+    _ = sysCall(.exit, 0, 0, 0);
+    unreachable;
 }
 
 pub fn sysCall(
