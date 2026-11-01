@@ -28,7 +28,7 @@ const VirtIoBlkReq = extern struct {
     status: u8,
 };
 
-pub const RequestType = enum(u32) {
+const RequestType = enum(u32) {
     read = 0, // BLK_T_IN: disk → RAM
     write = 1, // BLK_T_OUT: RAM → disk
 };
