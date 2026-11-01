@@ -1,5 +1,5 @@
 const std = @import("std");
-const user = @import("user.zig");
+const user = @import("runtime.zig");
 
 comptime {
     _ = user;
