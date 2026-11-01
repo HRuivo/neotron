@@ -5,9 +5,12 @@ pub const Framebuffer = struct {
     width: u32,
     height: u32,
     size: usize,
-    resource_id: u32,
 
-    pub fn init(allocator: std.mem.Allocator, width: u32, height: u32, resource_id: u32) !Framebuffer {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        width: u32,
+        height: u32,
+    ) !Framebuffer {
         const size = @as(usize, width) * @as(usize, height);
         const byte_count = size * 4;
         const pixels = try allocator.alloc(u8, byte_count);
@@ -16,7 +19,6 @@ pub const Framebuffer = struct {
         return .{
             .width = width,
             .height = height,
-            .resource_id = resource_id,
             .pixels = pixels,
             .size = size,
         };

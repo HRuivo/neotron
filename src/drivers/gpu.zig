@@ -7,6 +7,7 @@ const Colour = graphics.Colour;
 
 const MMIO_BASE: usize = 0x10002000;
 const DEVICE_ID: usize = 16;
+const RESOURCE_ID: u32 = 1;
 
 const gpu = virtio.VirtioMmio.init(MMIO_BASE);
 var queue_control_commands: *virtio.VirtIoQueue = undefined;
@@ -175,7 +176,7 @@ comptime {
 }
 
 fn transferToHost2D() void {
-    var request = TransferToHost2D.init(0, 0, 1280, 800, 1);
+    var request = TransferToHost2D.init(0, 0, framebuffer.width, framebuffer.height, RESOURCE_ID);
     var response = GpuControlHeader.init_zeroes();
 
     sendControl(&request, &response);
@@ -210,7 +211,7 @@ const ResourceFlush = extern struct {
 };
 
 fn resourceFlush() void {
-    var request = ResourceFlush.init(0, 0, 1280, 800, 1);
+    var request = ResourceFlush.init(0, 0, 1280, 800, RESOURCE_ID);
     var response = GpuControlHeader.init_zeroes();
 
     sendControl(&request, &response);
@@ -270,7 +271,7 @@ pub fn init(allocator: std.mem.Allocator) void {
 
     getDisplayInfo();
 
-    framebuffer = Framebuffer.init(allocator, 1280, 800, 1) catch @panic("failed to allocate framebuffer");
+    framebuffer = Framebuffer.init(allocator, 1280, 800) catch @panic("failed to allocate framebuffer");
 
     for (0..framebuffer.height) |y| {
         for (0..framebuffer.width) |x| {
@@ -278,10 +279,10 @@ pub fn init(allocator: std.mem.Allocator) void {
         }
     }
 
-    createResource2D(.b8g8r8a8, 1280, 800);
+    createResource2D(.b8g8r8a8, framebuffer.width, framebuffer.height);
     attachBackingResource();
     transferToHost2D();
-    setScanout(1280, 800, 0, 1);
+    setScanout(framebuffer.width, framebuffer.height, 0, 1);
     resourceFlush();
 
     framebuffer.drawRect(.{ .x = 1000, .y = 500 }, .{ .x = 350, .y = 120 }, Colour.white());
@@ -332,7 +333,7 @@ fn setScanout(width: u32, height: u32, scanout_id: u32, source_id: u32) void {
 }
 
 pub fn attachBackingResource() void {
-    var request = ResourceAttachBacking.init(1, framebuffer.pixels);
+    var request = ResourceAttachBacking.init(RESOURCE_ID, framebuffer.pixels);
     var response: GpuControlHeader = GpuControlHeader.init_zeroes();
 
     sendControl(&request, &response);
@@ -346,7 +347,7 @@ pub fn attachBackingResource() void {
 }
 
 pub fn createResource2D(format: ResourceFormat, width: u32, height: u32) void {
-    var request = ResourceCreate2D.init(1, format, width, height);
+    var request = ResourceCreate2D.init(RESOURCE_ID, format, width, height);
     var response: GpuControlHeader = GpuControlHeader.init_zeroes();
 
     sendControl(&request, &response);
