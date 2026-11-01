@@ -43,17 +43,11 @@ pub fn mapPage(
 
     const vpn1 = (vaddr >> 22) & 0x3ff;
     if ((root[vpn1] & PageFlags.valid) == 0) {
-        const new_table = alloc.alignedAlloc(
-            u32,
-            .fromByteUnits(PAGE_SIZE),
-            1024,
-        ) catch @panic("out of memory for page table");
-        @memset(new_table, 0);
+        const new_table = createPageTable(alloc);
+        const table_paddr = @intFromPtr(new_table);
 
-        const table_paddr = @intFromPtr(new_table.ptr);
         const table_ppn = table_paddr >> 12;
-
-        root[vpn1] = (table_ppn << 10) | 0b1;
+        root[vpn1] = (table_ppn << 10) | PageFlags.valid;
     }
 
     const table_paddr = (root[vpn1] >> 10) << 12;
@@ -71,4 +65,15 @@ pub fn mapKernel(
     while (addr < @intFromPtr(free_ram_end)) : (addr += PAGE_SIZE) {
         mapPage(alloc, root, addr, addr, PageFlags.rwx);
     }
+}
+
+pub fn createPageTable(alloc: std.mem.Allocator) *PageTable {
+    const entries = alloc.alignedAlloc(
+        u32,
+        .fromByteUnits(PAGE_SIZE),
+        1024,
+    ) catch @panic("out of memory for page table");
+
+    @memset(entries, 0);
+    return entries[0..1024];
 }

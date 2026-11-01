@@ -90,14 +90,7 @@ pub fn createProcess(
     }
 
     if (free_proc) |proc| {
-        const entries = allocator.alignedAlloc(
-            u32,
-            .fromByteUnits(memory.PAGE_SIZE),
-            1024,
-        ) catch @panic("out of memory for page table");
-        @memset(entries, 0);
-
-        const root: *memory.PageTable = entries[0..1024];
+        const root = memory.createPageTable(allocator);
 
         memory.mapKernel(allocator, root);
 
