@@ -17,7 +17,7 @@ comptime {
     }
 
     if (@sizeOf(ResourceAttachBacking) != 48) {
-        @compileError("Resource Create 2D must be of size 40 bytes");
+        @compileError("Resource Attach Backing must be of size 48 bytes");
     }
 
     if (@sizeOf(SetScanout) != 48) {
@@ -34,10 +34,21 @@ var queue_mouse: *hw.VirtIoQueue = undefined;
 
 var fb: []u8 = undefined;
 
-const Register = struct {
-    const magic: usize = 0x00;
-    const version: usize = 0x04;
-    const device_id: usize = 0x08;
+const CommandType = enum(u32) {
+    get_display_info = 0x0100,
+    resource_create_2d = 0x0101,
+    set_scanout = 0x0103,
+    resource_attach_backing = 0x0106,
+};
+
+const ResourceFormat = enum(u32) {
+    b8g8r8a8 = 1,
+};
+
+const ResponseType = enum(u32) {
+    ok_nodata = 0x1100,
+    ok_display_info = 0x1101,
+    _,
 };
 
 const GpuControlHeader = extern struct {
@@ -48,9 +59,9 @@ const GpuControlHeader = extern struct {
     ring_idx: u8,
     padding: [3]u8,
 
-    fn init(header_type: u32) GpuControlHeader {
+    fn init(command_type: CommandType) GpuControlHeader {
         var header = std.mem.zeroes(GpuControlHeader);
-        header.type = header_type;
+        header.type = @backingInt(command_type);
         return header;
     }
 
@@ -65,6 +76,16 @@ const ResourceCreate2D = extern struct {
     format: u32,
     width: u32,
     height: u32,
+
+    fn init(resource_id: u32, format: ResourceFormat, width: u32, height: u32) ResourceCreate2D {
+        var request = std.mem.zeroes(ResourceCreate2D);
+        request.header = GpuControlHeader.init(.resource_create_2d);
+        request.resource_id = resource_id;
+        request.format = @backingInt(format);
+        request.width = width;
+        request.height = height;
+        return request;
+    }
 };
 
 const ResourceAttachBacking = extern struct {
@@ -74,6 +95,54 @@ const ResourceAttachBacking = extern struct {
     addr: u64,
     length: u32,
     padding: u32,
+
+    fn init(resource_id: u32, data: []u8) ResourceAttachBacking {
+        var request = std.mem.zeroes(ResourceAttachBacking);
+        request.header = GpuControlHeader.init(.resource_attach_backing);
+        request.resource_id = resource_id;
+        request.nr_entries = 1;
+        request.addr = @intFromPtr(data.ptr);
+        request.length = @intCast(data.len);
+        return request;
+    }
+};
+
+const DisplayInfoEntry = extern struct {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    enabled: u32,
+    flags: u32,
+};
+
+const DisplayInfoResponse = extern struct {
+    header: GpuControlHeader,
+    displays: [16]DisplayInfoEntry,
+
+    fn init() DisplayInfoResponse {
+        return std.mem.zeroes(DisplayInfoResponse);
+    }
+};
+
+const SetScanout = extern struct {
+    header: GpuControlHeader,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    scanout_id: u32,
+    resource_id: u32,
+
+    fn init(width: u32, height: u32, scanout_id: u32, source_id: u32) SetScanout {
+        var request = std.mem.zeroes(SetScanout);
+        request.header = GpuControlHeader.init(.set_scanout);
+        request.width = width;
+        request.height = height;
+        request.scanout_id = scanout_id;
+        request.resource_id = source_id;
+        return request;
+    }
 };
 
 pub fn init(allocator: std.mem.Allocator) void {
@@ -134,9 +203,9 @@ pub fn init(allocator: std.mem.Allocator) void {
         fb[pixel + 3] = 255;
     }
 
-    createResource2D(1, 1280, 800);
+    createResource2D(.b8g8r8a8, 1280, 800);
     attachBackingResource();
-    setScanout();
+    setScanout(1280, 800, 0, 1);
 }
 
 fn initQueue(
@@ -162,49 +231,19 @@ fn initQueue(
     return queue;
 }
 
-const DisplayInfoEntry = extern struct {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-    enabled: u32,
-    flags: u32,
-};
-
-const DisplayInfoResponse = extern struct {
-    header: GpuControlHeader,
-    displays: [16]DisplayInfoEntry,
-};
-
-const SetScanout = extern struct {
-    header: GpuControlHeader,
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-    scanout_id: u32,
-    resource_id: u32,
-};
-
-fn setScanout() void {
-    var request = std.mem.zeroes(SetScanout);
-    request.header = GpuControlHeader.init(0x0103);
-    request.width = 1280;
-    request.height = 800;
-    request.scanout_id = 0;
-    request.resource_id = 1;
-
-    var response: GpuControlHeader = GpuControlHeader.init_zeroes();
+fn sendControl(request: anytype, response: anytype) void {
+    const request_bytes = std.mem.asBytes(request);
+    const response_bytes = std.mem.asBytes(response);
 
     queue_control_commands.descs[0] = .{
-        .addr = @intFromPtr(&request),
-        .len = @sizeOf(SetScanout),
+        .addr = @intFromPtr(request_bytes),
+        .len = @intCast(request_bytes.len),
         .flags = hw.DescriptorFlags.next,
         .next = 1,
     };
     queue_control_commands.descs[1] = .{
-        .addr = @intFromPtr(&response),
-        .len = @sizeOf(GpuControlHeader),
+        .addr = @intFromPtr(response_bytes),
+        .len = @intCast(response_bytes.len),
         .flags = hw.DescriptorFlags.write,
         .next = 0,
     };
@@ -215,107 +254,68 @@ fn setScanout() void {
         asm volatile ("nop");
     }
     asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
+}
 
-    console.print("[GPU] Set Scanout: 0x{x}\n", .{response.type}) catch {};
+fn setScanout(width: u32, height: u32, scanout_id: u32, source_id: u32) void {
+    var request = SetScanout.init(width, height, scanout_id, source_id);
+    var response: GpuControlHeader = GpuControlHeader.init_zeroes();
+
+    sendControl(&request, &response);
+
+    const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    if (result == .ok_nodata) {
+        console.print("[GPU] Set Scanout:                   [OK]\n", .{}) catch {};
+    } else {
+        console.print("[GPU] Set Scanout:                   [ERR] 0x{x}\n", .{response.type}) catch {};
+    }
 }
 
 pub fn attachBackingResource() void {
-    var request = std.mem.zeroes(ResourceAttachBacking);
-    request.header = GpuControlHeader.init(0x0106);
-    request.resource_id = 1;
-    request.nr_entries = 1;
-    request.addr = @intFromPtr(fb.ptr);
-    request.length = @intCast(fb.len);
-
+    var request = ResourceAttachBacking.init(1, fb);
     var response: GpuControlHeader = GpuControlHeader.init_zeroes();
 
-    queue_control_commands.descs[0] = .{
-        .addr = @intFromPtr(&request),
-        .len = @sizeOf(ResourceAttachBacking),
-        .flags = hw.DescriptorFlags.next,
-        .next = 1,
-    };
-    queue_control_commands.descs[1] = .{
-        .addr = @intFromPtr(&response),
-        .len = @sizeOf(GpuControlHeader),
-        .flags = hw.DescriptorFlags.write,
-        .next = 0,
-    };
+    sendControl(&request, &response);
 
-    kickQueue(gpu, queue_control_commands, 0);
-
-    while (isBusy(queue_control_commands)) {
-        asm volatile ("nop");
+    const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    if (result == .ok_nodata) {
+        console.print("[GPU] Attach Backing Resource:       [OK]\n", .{}) catch {};
+    } else {
+        console.print("[GPU] Attach Backing Resource:       [ERR] 0x{x}\n", .{response.type}) catch {};
     }
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
-
-    console.print("[GPU] Attach Backing Resource: 0x{x}\n", .{response.type}) catch {};
 }
 
-pub fn createResource2D(format: u32, width: u32, height: u32) void {
-    var request = std.mem.zeroes(ResourceCreate2D);
-    request.header = GpuControlHeader.init(0x0101);
-    request.resource_id = 1;
-    request.format = format;
-    request.width = width;
-    request.height = height;
-
+pub fn createResource2D(format: ResourceFormat, width: u32, height: u32) void {
+    var request = ResourceCreate2D.init(1, format, width, height);
     var response: GpuControlHeader = GpuControlHeader.init_zeroes();
 
-    queue_control_commands.descs[0] = .{
-        .addr = @intFromPtr(&request),
-        .len = @sizeOf(ResourceCreate2D),
-        .flags = hw.DescriptorFlags.next,
-        .next = 1,
-    };
-    queue_control_commands.descs[1] = .{
-        .addr = @intFromPtr(&response),
-        .len = @sizeOf(GpuControlHeader),
-        .flags = hw.DescriptorFlags.write,
-        .next = 0,
-    };
+    sendControl(&request, &response);
 
-    kickQueue(gpu, queue_control_commands, 0);
-
-    while (isBusy(queue_control_commands)) {
-        asm volatile ("nop");
+    const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    if (result == .ok_nodata) {
+        console.print("[GPU] Create Resource 2D:            [OK]\n", .{}) catch {};
+    } else {
+        console.print("[GPU] Create Resource 2D:            [ERR] 0x{x}\n", .{response.type}) catch {};
     }
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
-
-    console.print("[GPU] Create Resource 2D Type: 0x{x}\n", .{response.type}) catch {};
 }
 
 pub fn getDisplayInfo() void {
-    var request = GpuControlHeader.init(0x0100);
+    var request = GpuControlHeader.init(.get_display_info);
+    var response = DisplayInfoResponse.init();
 
-    var response_buff = std.mem.zeroes(DisplayInfoResponse);
+    sendControl(&request, &response);
 
-    queue_control_commands.descs[0] = .{
-        .addr = @intFromPtr(&request),
-        .len = @sizeOf(GpuControlHeader),
-        .flags = hw.DescriptorFlags.next,
-        .next = 1,
-    };
-    queue_control_commands.descs[1] = .{
-        .addr = @intFromPtr(&response_buff),
-        .len = @sizeOf(DisplayInfoResponse),
-        .flags = hw.DescriptorFlags.write,
-        .next = 0,
-    };
+    const result: ResponseType = @fromBackingInt(@intCast(response.header.type));
 
-    kickQueue(gpu, queue_control_commands, 0);
-
-    while (isBusy(queue_control_commands)) {
-        asm volatile ("nop");
-    }
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
-
-    console.print("[GPU] Display Info Header Type: 0x{x}\n", .{response_buff.header.type}) catch {};
-    for (response_buff.displays) |display_info| {
-        if (display_info.enabled != 0) {
-            console.print("[CPU] Display X:{d}, Y:{d}\n", .{ display_info.x, display_info.y }) catch {};
-            console.print("[CPU] Display W:{d}, H:{d}\n", .{ display_info.width, display_info.height }) catch {};
+    if (result == .ok_display_info) {
+        console.print("[GPU] Get Display Info:              [OK]\n", .{}) catch {};
+        for (response.displays) |display_info| {
+            if (display_info.enabled != 0) {
+                console.print("      X:{d}, Y:{d}\n", .{ display_info.x, display_info.y }) catch {};
+                console.print("      W:{d}, H:{d}\n", .{ display_info.width, display_info.height }) catch {};
+            }
         }
+    } else {
+        console.print("[GPU] Get Display Info:              [ERR] 0x{x}\n", .{response.header.type}) catch {};
     }
 }
 

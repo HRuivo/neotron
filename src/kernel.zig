@@ -354,14 +354,14 @@ export fn kernelMain() noreturn {
 
     _ = createProcess(heap.allocator(), shell_image);
 
-    console.print("shell image: {d} bytes, first byte: 0x{x}\n", .{
-        shell_image.len,
-        shell_image[0],
-    }) catch {};
+    // console.print("shell image: {d} bytes, first byte: 0x{x}\n", .{
+    //     shell_image.len,
+    //     shell_image[0],
+    // }) catch {};
 
-    console.print("embedded shell address: 0x{x}\n", .{
-        @intFromPtr(shell_image),
-    }) catch {};
+    // console.print("embedded shell address: 0x{x}\n", .{
+    //     @intFromPtr(shell_image),
+    // }) catch {};
 
     yield();
     @panic("switched to idle process");
