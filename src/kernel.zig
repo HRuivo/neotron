@@ -139,6 +139,31 @@ fn switchContext(prev_sp: *usize, next_sp: *const usize) callconv(.naked) void {
     );
 }
 
+const Context = extern struct {
+    ra: usize,
+    s0: usize,
+    s1: usize,
+    s2: usize,
+    s3: usize,
+    s4: usize,
+    s5: usize,
+    s6: usize,
+    s7: usize,
+    s8: usize,
+    s9: usize,
+    s10: usize,
+    s11: usize,
+    padding: [3]usize, // Preserve your current 64-byte frame.
+};
+
+comptime {
+    if (@sizeOf(Context) != 64)
+        @compileError("context frame must occupy 64 bytes");
+
+    if (@offsetOf(Context, "s11") != 48)
+        @compileError("s11 offset must match context-switch assembly");
+}
+
 fn contextSwitch(prev_sp: *usize, next_sp: *const usize) void {
     const switch_fn: *const fn (*usize, *const usize) callconv(.c) void =
         @ptrCast(&switchContext);
@@ -243,38 +268,15 @@ fn createProcess(
             );
         }
 
-        var sp: [*]usize = @ptrCast(@alignCast(proc.stack[0..].ptr + proc.stack.len));
-        sp -= 3;
-        sp -= 1;
-        sp[0] = 0; // s11
-        sp -= 1;
-        sp[0] = 0; // s10
-        sp -= 1;
-        sp[0] = 0; // s9
-        sp -= 1;
-        sp[0] = 0; // s8
-        sp -= 1;
-        sp[0] = 0; // s7
-        sp -= 1;
-        sp[0] = 0; // s6
-        sp -= 1;
-        sp[0] = 0; // s5
-        sp -= 1;
-        sp[0] = 0; // s4
-        sp -= 1;
-        sp[0] = 0; // s3
-        sp -= 1;
-        sp[0] = 0; // s2
-        sp -= 1;
-        sp[0] = 0; // s1
-        sp -= 1;
-        sp[0] = 0; // s0
-        sp -= 1;
-        sp[0] = @intFromPtr(&userEntry); // ra
+        const stack_end = @intFromPtr(&proc.stack) + proc.stack.len;
+        const context: *Context = @ptrFromInt(stack_end - @sizeOf(Context));
+
+        context.* = std.mem.zeroes(Context);
+        context.ra = @intFromPtr(&userEntry);
 
         proc.pid = i + 1;
         proc.state = .Runnable;
-        proc.sp = @intFromPtr(sp);
+        proc.sp = @intFromPtr(context);
         proc.page_table = root;
 
         return proc;
