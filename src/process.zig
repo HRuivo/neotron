@@ -12,6 +12,7 @@ const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
 var processes: [PROCS_MAX]Process = undefined;
 var current_proc: *Process = undefined;
 var idle_proc: *Process = undefined;
+var current_index: usize = 0;
 
 const ProcessState = enum {
     Unused,
@@ -41,16 +42,21 @@ pub fn init(allocator: std.mem.Allocator) void {
     idle_proc = createProcess(allocator, &.{});
     idle_proc.pid = 0;
     current_proc = idle_proc;
+    current_index = 0;
 }
 
 pub fn yield() void {
     var next: *Process = idle_proc;
+    var next_index: usize = 0;
 
     // Start after the current process and wrap around for round-robin scheduling.
     for (1..PROCS_MAX + 1) |offset| {
-        const process = &processes[(current_proc.pid - 1 + offset) % PROCS_MAX];
-        if (process.state == .Runnable and process.pid > 0) {
-            next = process;
+        const index = (current_index + offset) % PROCS_MAX;
+        const candidate = &processes[index];
+
+        if (candidate.state == .Runnable and candidate != idle_proc) {
+            next = candidate;
+            next_index = index;
             break;
         }
     }
@@ -65,6 +71,8 @@ pub fn yield() void {
 
     const prev: *Process = current_proc;
     current_proc = next;
+    current_index = next_index;
+
     context.contextSwitch(&prev.sp, &next.sp);
 }
 
