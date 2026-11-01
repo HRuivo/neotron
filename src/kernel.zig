@@ -2,6 +2,7 @@ const std = @import("std");
 const console = @import("console.zig");
 const syscall = @import("syscall.zig");
 const disk = @import("disk.zig");
+const display = @import("display.zig");
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
@@ -209,7 +210,13 @@ fn createProcess(
 
         var addr: usize = 0x8020_0000;
         while (addr < @intFromPtr(free_ram_end)) : (addr += PAGE_SIZE) {
-            mapPage(allocator, root, addr, addr, PageFlags.rwx);
+            mapPage(
+                allocator,
+                root,
+                addr,
+                addr,
+                PageFlags.rwx,
+            );
         }
 
         var offset: usize = 0;
@@ -317,10 +324,14 @@ export fn kernelMain() noreturn {
     const heap_memory = free_ram[0 .. free_ram_end - free_ram];
     heap = std.heap.FixedBufferAllocator.init(heap_memory);
 
+    // Disk
     disk.init(heap.allocator());
     var buffer: [512]u8 = undefined;
     disk.readWriteDisk(&buffer, 0, false);
     console.print("first sector: {s}\n", .{buffer[0..]}) catch {};
+
+    // Display
+    display.init(heap.allocator());
 
     @memset(buffer[0..], 0);
     const message = "hello from kernel!!!\n";
@@ -343,14 +354,14 @@ export fn kernelMain() noreturn {
 
     _ = createProcess(heap.allocator(), shell_image);
 
-    console.print("shell image: {d} bytes, first byte: 0x{x}\n", .{
-        shell_image.len,
-        shell_image[0],
-    }) catch {};
+    // console.print("shell image: {d} bytes, first byte: 0x{x}\n", .{
+    //     shell_image.len,
+    //     shell_image[0],
+    // }) catch {};
 
-    console.print("embedded shell address: 0x{x}\n", .{
-        @intFromPtr(shell_image),
-    }) catch {};
+    // console.print("embedded shell address: 0x{x}\n", .{
+    //     @intFromPtr(shell_image),
+    // }) catch {};
 
     yield();
     @panic("switched to idle process");
