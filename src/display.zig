@@ -26,7 +26,52 @@ const gpu = hw.VirtioMmio.init(MMIO_BASE);
 var queue_control_commands: *hw.VirtIoQueue = undefined;
 var queue_mouse: *hw.VirtIoQueue = undefined;
 
-var fb: []u8 = undefined;
+var framebuffer: Framebuffer = undefined;
+
+const Framebuffer = struct {
+    pixels: []u8,
+    width: u32,
+    height: u32,
+    size: usize,
+    resource_id: u32,
+
+    fn init(allocator: std.mem.Allocator, width: u32, height: u32, resource_id: u32) !Framebuffer {
+        const size = @as(usize, width) * @as(usize, height);
+        const byte_count = size * 4;
+        const pixels = try allocator.alloc(u8, byte_count);
+        @memset(pixels, 0);
+
+        return .{
+            .width = width,
+            .height = height,
+            .resource_id = resource_id,
+            .pixels = pixels,
+            .size = size,
+        };
+    }
+
+    pub fn putPixel(self: *Framebuffer, position: Point2D, colour: Colour) void {
+        if (position.x < self.width and position.y < self.height) {
+            const byte_offset = (position.y * self.width + position.x) * 4;
+            self.pixels[byte_offset + 0] = colour.b;
+            self.pixels[byte_offset + 1] = colour.g;
+            self.pixels[byte_offset + 2] = colour.r;
+            self.pixels[byte_offset + 3] = colour.a;
+        }
+    }
+};
+
+const Colour = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8 = 255,
+};
+
+const Point2D = struct {
+    x: usize,
+    y: usize,
+};
 
 const CommandType = enum(u32) {
     get_display_info = 0x0100,
@@ -259,15 +304,12 @@ pub fn init(allocator: std.mem.Allocator) void {
 
     getDisplayInfo();
 
-    fb = allocator.alloc(u8, 4_096_000) catch @panic("failed to allocate framebuffer");
-    @memset(fb, 0);
+    framebuffer = Framebuffer.init(allocator, 1280, 800, 1) catch @panic("failed to allocate framebuffer");
 
-    var pixel: usize = 0;
-    while (pixel < fb.len) : (pixel += 4) {
-        fb[pixel + 0] = 134;
-        fb[pixel + 1] = 128;
-        fb[pixel + 2] = 19;
-        fb[pixel + 3] = 255;
+    for (0..framebuffer.height) |y| {
+        for (0..framebuffer.width) |x| {
+            framebuffer.putPixel(.{ .x = x, .y = y }, .{ .r = 19, .g = 128, .b = 134 });
+        }
     }
 
     createResource2D(.b8g8r8a8, 1280, 800);
@@ -341,7 +383,7 @@ fn setScanout(width: u32, height: u32, scanout_id: u32, source_id: u32) void {
 }
 
 pub fn attachBackingResource() void {
-    var request = ResourceAttachBacking.init(1, fb);
+    var request = ResourceAttachBacking.init(1, framebuffer.pixels);
     var response: GpuControlHeader = GpuControlHeader.init_zeroes();
 
     sendControl(&request, &response);
