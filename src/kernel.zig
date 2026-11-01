@@ -443,7 +443,7 @@ fn kernelEntry() align(4) callconv(.naked) void {
         \\csrr a0, sscratch
         \\sw a0, 4 * 30(sp)
         \\
-        \\addi a0, sp, 4 * 31
+        \\addi a0, sp, 128
         \\csrw sscratch, a0
         \\
         \\mv a0, sp
