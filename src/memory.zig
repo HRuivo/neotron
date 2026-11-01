@@ -1,8 +1,13 @@
 const std = @import("std");
 
+const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
+const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
+
 pub const PAGE_SIZE: usize = 4096;
 
 pub const PageTable = [1024]u32;
+
+var heap: std.heap.FixedBufferAllocator = undefined;
 
 pub const PageFlags = struct {
     pub const valid: u32 = 1 << 0;
@@ -16,8 +21,17 @@ pub const PageFlags = struct {
     pub const rwx: u32 = read | write | execute;
 };
 
+pub fn init() void {
+    const heap_memory = free_ram[0 .. free_ram_end - free_ram];
+    heap = std.heap.FixedBufferAllocator.init(heap_memory);
+}
+
+pub fn allocator() std.mem.Allocator {
+    return heap.allocator();
+}
+
 pub fn mapPage(
-    allocator: std.mem.Allocator,
+    alloc: std.mem.Allocator,
     root: *PageTable,
     vaddr: usize,
     paddr: usize,
@@ -29,7 +43,7 @@ pub fn mapPage(
 
     const vpn1 = (vaddr >> 22) & 0x3ff;
     if ((root[vpn1] & PageFlags.valid) == 0) {
-        const new_table = allocator.alignedAlloc(
+        const new_table = alloc.alignedAlloc(
             u32,
             .fromByteUnits(PAGE_SIZE),
             1024,

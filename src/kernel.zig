@@ -2,6 +2,7 @@ const std = @import("std");
 
 const console = @import("console.zig");
 const trap = @import("arch/riscv32/trap.zig");
+const memory = @import("memory.zig");
 const process = @import("process.zig");
 const gpu = @import("drivers/gpu.zig");
 const disk = @import("drivers/disk.zig");
@@ -9,14 +10,10 @@ const disk = @import("drivers/disk.zig");
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
 const stack_top = @extern([*]align(16) u8, .{ .name = "__stack_top" });
-const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
-const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
 
 pub const panic = std.debug.FullPanic(kernelPanic);
 
 const shell_image = @embedFile("shell_image");
-
-var heap: std.heap.FixedBufferAllocator = undefined;
 
 fn kernelPanic(message: []const u8, return_address: ?usize) noreturn {
     _ = console.writeBytes("\nKERNEL PANIC: ") catch 0;
@@ -49,25 +46,25 @@ export fn kernelMain() noreturn {
 
     trap.init();
 
-    const heap_memory = free_ram[0 .. free_ram_end - free_ram];
-    heap = std.heap.FixedBufferAllocator.init(heap_memory);
+    memory.init();
+    const allocator = memory.allocator();
 
     // Disk
-    disk.init(heap.allocator());
+    disk.init(allocator);
     var buffer: [512]u8 = undefined;
     disk.readWriteDisk(&buffer, 0, false);
     console.print("first sector: {s}\n", .{buffer[0..]}) catch {};
 
     // Display
-    gpu.init(heap.allocator());
+    gpu.init(allocator);
 
     @memset(buffer[0..], 0);
     const message = "hello from kernel!!!\n";
     @memcpy(buffer[0..message.len], message);
     disk.readWriteDisk(&buffer, 0, true);
 
-    process.init(heap.allocator());
-    _ = process.createProcess(heap.allocator(), shell_image);
+    process.init(allocator);
+    _ = process.createProcess(allocator, shell_image);
 
     process.yield();
     @panic("switched to idle process");
