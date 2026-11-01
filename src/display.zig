@@ -177,6 +177,41 @@ fn transferToHost2D() void {
     }
 }
 
+const ResourceFlush = extern struct {
+    header: GpuControlHeader,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    resource_id: u32,
+    padding: u32,
+
+    fn init(x: u32, y: u32, width: u32, height: u32, resource_id: u32) ResourceFlush {
+        var command = std.mem.zeroes(ResourceFlush);
+        command.header = GpuControlHeader.init(.resource_flush);
+        command.x = x;
+        command.y = y;
+        command.width = width;
+        command.height = height;
+        command.resource_id = resource_id;
+        return command;
+    }
+};
+
+fn resourceFlush() void {
+    var request = ResourceFlush.init(0, 0, 1280, 800, 1);
+    var response = GpuControlHeader.init_zeroes();
+
+    sendControl(&request, &response);
+
+    const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    if (result == .ok_nodata) {
+        console.print("[GPU] Resource Flush:                [OK]\n", .{}) catch {};
+    } else {
+        console.print("[GPU] Resource Flush:                [ERR] 0x{x}\n", .{response.type}) catch {};
+    }
+}
+
 pub fn init(allocator: std.mem.Allocator) void {
     const magic = gpu.readRegister(hw.Register.magic);
     if (magic != hw.VirtioMmio.VIRTIO_MAGIC) {
@@ -239,6 +274,8 @@ pub fn init(allocator: std.mem.Allocator) void {
     attachBackingResource();
     transferToHost2D();
     setScanout(1280, 800, 0, 1);
+
+    resourceFlush();
 }
 
 fn initQueue(
