@@ -5,24 +5,18 @@ const hw = @import("hw.zig");
 comptime {
     if (@alignOf(hw.VirtIoQueue) < hw.PAGE_SIZE)
         @compileError("VirtIO queue must be page aligned");
-
     if (@offsetOf(hw.VirtIoQueue, "used") != hw.PAGE_SIZE)
         @compileError("used ring must begin at offset PAGE_SIZE");
-
     if (@sizeOf(GpuControlHeader) != 24)
         @compileError("GPU Command must be of size 24 bytes");
-
-    if (@sizeOf(ResourceCreate2D) != 40) {
+    if (@sizeOf(ResourceCreate2D) != 40)
         @compileError("Resource Create 2D must be of size 40 bytes");
-    }
-
-    if (@sizeOf(ResourceAttachBacking) != 48) {
+    if (@sizeOf(ResourceAttachBacking) != 48)
         @compileError("Resource Attach Backing must be of size 48 bytes");
-    }
-
-    if (@sizeOf(SetScanout) != 48) {
+    if (@sizeOf(SetScanout) != 48)
         @compileError("Set Scanout must be of size 48 bytes");
-    }
+    if (@sizeOf(TransferToHost2D) != 56)
+        @compileError("Transfer To Host 2D must be of size 56 bytes");
 }
 
 const MMIO_BASE: usize = 0x10002000;
@@ -38,6 +32,8 @@ const CommandType = enum(u32) {
     get_display_info = 0x0100,
     resource_create_2d = 0x0101,
     set_scanout = 0x0103,
+    resource_flush = 0x104,
+    transfer_to_host_2d = 0x0105,
     resource_attach_backing = 0x0106,
 };
 
@@ -135,15 +131,51 @@ const SetScanout = extern struct {
     resource_id: u32,
 
     fn init(width: u32, height: u32, scanout_id: u32, source_id: u32) SetScanout {
-        var request = std.mem.zeroes(SetScanout);
-        request.header = GpuControlHeader.init(.set_scanout);
-        request.width = width;
-        request.height = height;
-        request.scanout_id = scanout_id;
-        request.resource_id = source_id;
-        return request;
+        var command = std.mem.zeroes(SetScanout);
+        command.header = GpuControlHeader.init(.set_scanout);
+        command.width = width;
+        command.height = height;
+        command.scanout_id = scanout_id;
+        command.resource_id = source_id;
+        return command;
     }
 };
+
+const TransferToHost2D = extern struct {
+    header: GpuControlHeader,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    offset: u64,
+    resource_id: u32,
+    padding: u32,
+
+    fn init(x: u32, y: u32, width: u32, height: u32, resource_id: u32) TransferToHost2D {
+        var command = std.mem.zeroes(TransferToHost2D);
+        command.header = GpuControlHeader.init(.transfer_to_host_2d);
+        command.x = x;
+        command.y = y;
+        command.width = width;
+        command.height = height;
+        command.resource_id = resource_id;
+        return command;
+    }
+};
+
+fn transferToHost2D() void {
+    var request = TransferToHost2D.init(0, 0, 1280, 800, 1);
+    var response = GpuControlHeader.init_zeroes();
+
+    sendControl(&request, &response);
+
+    const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    if (result == .ok_nodata) {
+        console.print("[GPU] Transfer To Host 2D:           [OK]\n", .{}) catch {};
+    } else {
+        console.print("[GPU] Transfer To Host 2D:           [ERR] 0x{x}\n", .{response.type}) catch {};
+    }
+}
 
 pub fn init(allocator: std.mem.Allocator) void {
     const magic = gpu.readRegister(hw.Register.magic);
@@ -197,14 +229,15 @@ pub fn init(allocator: std.mem.Allocator) void {
 
     var pixel: usize = 0;
     while (pixel < fb.len) : (pixel += 4) {
-        fb[pixel + 0] = 0;
-        fb[pixel + 1] = 0;
-        fb[pixel + 2] = 255;
+        fb[pixel + 0] = 134;
+        fb[pixel + 1] = 128;
+        fb[pixel + 2] = 19;
         fb[pixel + 3] = 255;
     }
 
     createResource2D(.b8g8r8a8, 1280, 800);
     attachBackingResource();
+    transferToHost2D();
     setScanout(1280, 800, 0, 1);
 }
 
