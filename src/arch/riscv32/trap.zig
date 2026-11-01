@@ -1,8 +1,6 @@
 const std = @import("std");
 const cpu = @import("cpu.zig");
-const syscall = @import("syscall");
-const console = @import("../../console.zig");
-const process = @import("../../process.zig");
+const syscalls = @import("../../syscalls.zig");
 
 const SCAUSE_ECALL: usize = 0x8;
 
@@ -124,29 +122,6 @@ fn kernelEntry() align(4) callconv(.naked) void {
     );
 }
 
-fn handleSyscall(tf: *TrapFrame) void {
-    switch (tf.a3) {
-        @backingInt(syscall.Number.putchar) => {
-            console.putChar(@truncate(tf.a0)) catch @panic("console write failed");
-        },
-        @backingInt(syscall.Number.getchar) => {
-            while (true) {
-                if (console.getChar()) |ch| {
-                    tf.a0 = ch;
-                    break;
-                }
-
-                process.yield();
-            }
-        },
-        @backingInt(syscall.Number.exit) => {
-            console.print("process {d} exited\n", .{process.currentPid()}) catch {};
-            process.exitCurrent();
-        },
-        else => std.debug.panic("unexpected syscall a3={x}", .{tf.a3}),
-    }
-}
-
 export fn handleTrap(tf: *TrapFrame) void {
     const scause = cpu.readCsr("scause");
     const stval = cpu.readCsr("stval");
@@ -154,7 +129,7 @@ export fn handleTrap(tf: *TrapFrame) void {
 
     switch (scause) {
         SCAUSE_ECALL => {
-            handleSyscall(tf);
+            tf.a0 = syscalls.handleSyscall(tf.a3, tf.a0);
             user_pc += 4;
         },
         else => std.debug.panic(
