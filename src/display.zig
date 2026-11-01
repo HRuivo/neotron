@@ -59,6 +59,14 @@ const Framebuffer = struct {
             self.pixels[byte_offset + 3] = colour.a;
         }
     }
+
+    pub fn drawRect(self: *Framebuffer, position: Point2D, dimension: Point2D, colour: Colour) void {
+        for (0..dimension.y) |row| {
+            for (0..dimension.x) |col| {
+                self.putPixel(.{ .x = position.x + col, .y = position.y + row }, colour);
+            }
+        }
+    }
 };
 
 const Colour = struct {
@@ -66,6 +74,46 @@ const Colour = struct {
     g: u8,
     b: u8,
     a: u8 = 255,
+
+    fn white() Colour {
+        return .{
+            .r = 255,
+            .g = 255,
+            .b = 255,
+        };
+    }
+
+    fn black() Colour {
+        return .{
+            .r = 0,
+            .g = 0,
+            .b = 0,
+        };
+    }
+
+    fn red() Colour {
+        return .{
+            .r = 255,
+            .g = 0,
+            .b = 0,
+        };
+    }
+
+    fn green() Colour {
+        return .{
+            .r = 0,
+            .g = 255,
+            .b = 0,
+        };
+    }
+
+    fn blue() Colour {
+        return .{
+            .r = 0,
+            .g = 0,
+            .b = 255,
+        };
+    }
 };
 
 const Point2D = struct {
@@ -316,6 +364,10 @@ pub fn init(allocator: std.mem.Allocator) void {
     attachBackingResource();
     transferToHost2D();
     setScanout(1280, 800, 0, 1);
+    resourceFlush();
+
+    framebuffer.drawRect(.{ .x = 100, .y = 100 }, .{ .x = 300, .y = 150 }, Colour.white());
+    transferToHost2D();
 
     resourceFlush();
 }
