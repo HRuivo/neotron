@@ -78,18 +78,9 @@ pub fn createProcess(
     allocator: std.mem.Allocator,
     image: []const u8,
 ) *Process {
-    var free_proc: ?*Process = null;
+    for (&processes, 0..) |*proc, index| {
+        if (proc.state != .Unused) continue;
 
-    var i: usize = 0;
-    for (&processes) |*process| {
-        if (process.state == .Unused) {
-            free_proc = process;
-            break;
-        }
-        i += 1;
-    }
-
-    if (free_proc) |proc| {
         const root = memory.createPageTable(allocator);
 
         memory.mapKernel(allocator, root);
@@ -124,7 +115,7 @@ pub fn createProcess(
         initial_context.* = std.mem.zeroes(context.Context);
         initial_context.ra = @intFromPtr(&userEntry);
 
-        proc.pid = i + 1;
+        proc.pid = @intCast(index + 1);
         proc.state = .Runnable;
         proc.sp = @intFromPtr(initial_context);
         proc.page_table = root;
