@@ -22,12 +22,11 @@ pub fn build(b: *std.Build) void {
         "virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0",
         "-device",
         "virtio-gpu-device,bus=virtio-mmio-bus.1",
-        "-kernel",
-        b.pathJoin(&.{ "zig-out/bin", kernel }),
         "-s",
         //"-S",
     }));
-    run_qemu.step.dependOn(b.default_step);
+    run_qemu.addArg("-kernel");
+    run_qemu.addFileArg(kernel.getEmittedBin());
     run_step.dependOn(&run_qemu.step);
 
     const clean_step = b.step("clean", "Clean");
@@ -40,7 +39,7 @@ pub fn build(b: *std.Build) void {
     clean_step.dependOn(&clean_cmd.step);
 }
 
-fn buildKernel(b: *std.Build) []const u8 {
+fn buildKernel(b: *std.Build) *std.Build.Step.Compile {
     const features = Target.riscv.Feature;
     var disabled_features = Feature.Set.empty;
     var enabled_features = Feature.Set.empty;
@@ -76,7 +75,6 @@ fn buildKernel(b: *std.Build) []const u8 {
 
     const copy_kernel_object = b.addInstallBinFile(kernel.getEmittedBin(), "kernel.elf");
     b.default_step.dependOn(&copy_kernel_object.step);
-    copy_kernel_object.step.dependOn(&kernel.step);
 
     const shell = b.addExecutable(.{
         .name = "shell",
@@ -126,5 +124,5 @@ fn buildKernel(b: *std.Build) []const u8 {
         .root_source_file = shell_bin_output,
     });
 
-    return copy_kernel_object.dest_rel_path;
+    return kernel;
 }
