@@ -1,4 +1,4 @@
-const syscall = @import("syscall.zig");
+const syscall = @import("syscall");
 
 const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
 

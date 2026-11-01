@@ -1,8 +1,8 @@
 const std = @import("std");
 const console = @import("console.zig");
-const syscall = @import("syscall.zig");
-const disk = @import("disk.zig");
-const display = @import("display.zig");
+const syscall = @import("syscall");
+const disk = @import("drivers/disk.zig");
+const display = @import("drivers/display.zig");
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });

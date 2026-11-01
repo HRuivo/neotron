@@ -81,7 +81,7 @@ fn buildKernel(b: *std.Build) []const u8 {
     const shell = b.addExecutable(.{
         .name = "shell",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/shell.zig"),
+            .root_source_file = b.path("src/user/shell.zig"),
             .target = target,
             .optimize = .small,
             .strip = false,
@@ -90,6 +90,15 @@ fn buildKernel(b: *std.Build) []const u8 {
     });
     shell.setLinkerScript(b.path("linker/user.ld"));
     shell.entry = .{ .symbol_name = "start" };
+
+    const syscall_module = b.createModule(.{
+        .root_source_file = b.path("src/abi/syscall.zig"),
+        .target = target,
+        .optimize = .small,
+    });
+
+    shell.root_module.addImport("syscall", syscall_module);
+    kernel.root_module.addImport("syscall", syscall_module);
 
     const install_shell = b.addInstallBinFile(
         shell.getEmittedBin(),

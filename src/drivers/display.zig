@@ -1,11 +1,11 @@
 const std = @import("std");
-const console = @import("console.zig");
-const hw = @import("hw.zig");
+const console = @import("../console.zig");
+const virtio = @import("virtio.zig");
 
 comptime {
-    if (@alignOf(hw.VirtIoQueue) < hw.PAGE_SIZE)
+    if (@alignOf(virtio.VirtIoQueue) < virtio.PAGE_SIZE)
         @compileError("VirtIO queue must be page aligned");
-    if (@offsetOf(hw.VirtIoQueue, "used") != hw.PAGE_SIZE)
+    if (@offsetOf(virtio.VirtIoQueue, "used") != virtio.PAGE_SIZE)
         @compileError("used ring must begin at offset PAGE_SIZE");
     if (@sizeOf(GpuControlHeader) != 24)
         @compileError("GPU Command must be of size 24 bytes");
@@ -22,9 +22,9 @@ comptime {
 const MMIO_BASE: usize = 0x10002000;
 const DEVICE_ID: usize = 16;
 
-const gpu = hw.VirtioMmio.init(MMIO_BASE);
-var queue_control_commands: *hw.VirtIoQueue = undefined;
-var queue_mouse: *hw.VirtIoQueue = undefined;
+const gpu = virtio.VirtioMmio.init(MMIO_BASE);
+var queue_control_commands: *virtio.VirtIoQueue = undefined;
+var queue_mouse: *virtio.VirtIoQueue = undefined;
 
 var framebuffer: Framebuffer = undefined;
 
@@ -309,15 +309,15 @@ fn resourceFlush() void {
 }
 
 pub fn init(allocator: std.mem.Allocator) void {
-    const magic = gpu.readRegister(hw.Register.magic);
-    if (magic != hw.VirtioMmio.VIRTIO_MAGIC) {
+    const magic = gpu.readRegister(virtio.Register.magic);
+    if (magic != virtio.VirtioMmio.VIRTIO_MAGIC) {
         @panic("[virtio][GPU]: invalid magic value");
     }
-    const version = gpu.readRegister(hw.Register.version);
+    const version = gpu.readRegister(virtio.Register.version);
     if (version != 1) {
         @panic("[virtio][GPU]: invalid version");
     }
-    const device_id = gpu.readRegister(hw.Register.device_id);
+    const device_id = gpu.readRegister(virtio.Register.device_id);
     if (device_id != DEVICE_ID) {
         std.debug.panic("[virtio][GPU]: invalid devide id={x}", .{device_id});
     }
@@ -327,9 +327,9 @@ pub fn init(allocator: std.mem.Allocator) void {
         .{ magic, version, device_id },
     ) catch {};
 
-    gpu.writeRegister(hw.Register.device_status, 0);
-    gpu.setRegisterBits(hw.Register.device_status, hw.Status.ack);
-    gpu.setRegisterBits(hw.Register.device_status, hw.Status.driver);
+    gpu.writeRegister(virtio.Register.device_status, 0);
+    gpu.setRegisterBits(virtio.Register.device_status, virtio.Status.ack);
+    gpu.setRegisterBits(virtio.Register.device_status, virtio.Status.driver);
 
     gpu.writeRegister(0x14, 0);
     const feature_word: u32 = gpu.readRegister(0x10);
@@ -340,17 +340,17 @@ pub fn init(allocator: std.mem.Allocator) void {
     // accept no optinal features on that page.
     gpu.writeRegister(0x20, 0);
 
-    gpu.writeRegister(hw.Register.queue_sel, 0);
-    const queue_num_max = gpu.readRegister(hw.Register.queue_num_max);
+    gpu.writeRegister(virtio.Register.queue_sel, 0);
+    const queue_num_max = gpu.readRegister(virtio.Register.queue_num_max);
     console.print("[GPU] Queue Num Max: {d}\n", .{queue_num_max}) catch {};
 
-    gpu.writeRegister(hw.Register.page_size, hw.PAGE_SIZE);
+    gpu.writeRegister(virtio.Register.page_size, virtio.PAGE_SIZE);
 
     queue_control_commands = initQueue(allocator, gpu, 0);
     queue_mouse = initQueue(allocator, gpu, 1);
 
-    gpu.setRegisterBits(hw.Register.device_status, hw.Status.driver_ok);
-    const status = gpu.readRegister(hw.Register.device_status);
+    gpu.setRegisterBits(virtio.Register.device_status, virtio.Status.driver_ok);
+    const status = gpu.readRegister(virtio.Register.device_status);
     console.print("[GPU] Device status: 0b{b}\n", .{status}) catch {};
 
     getDisplayInfo();
@@ -379,23 +379,23 @@ pub fn init(allocator: std.mem.Allocator) void {
 
 fn initQueue(
     allocator: std.mem.Allocator,
-    transport: hw.VirtioMmio,
+    transport: virtio.VirtioMmio,
     index: u32,
-) *hw.VirtIoQueue {
-    const queue = allocator.create(hw.VirtIoQueue) catch @panic("out of memory for VirtIO queue");
+) *virtio.VirtIoQueue {
+    const queue = allocator.create(virtio.VirtIoQueue) catch @panic("out of memory for VirtIO queue");
     @memset(std.mem.asBytes(queue), 0);
 
     queue.queue_index = index;
     queue.used_index = &queue.used.index;
 
-    transport.writeRegister(hw.Register.queue_sel, index);
-    const max_size = transport.readRegister(hw.Register.queue_num_max);
-    if (max_size < hw.QUEUE_SIZE) {
+    transport.writeRegister(virtio.Register.queue_sel, index);
+    const max_size = transport.readRegister(virtio.Register.queue_num_max);
+    if (max_size < virtio.QUEUE_SIZE) {
         @panic("VirtIO queue is too small or unavailable");
     }
-    transport.writeRegister(hw.Register.queue_num, hw.QUEUE_SIZE);
-    transport.writeRegister(hw.Register.queue_align, hw.PAGE_SIZE);
-    transport.writeRegister(hw.Register.queue_pfn, @intFromPtr(queue) / hw.PAGE_SIZE);
+    transport.writeRegister(virtio.Register.queue_num, virtio.QUEUE_SIZE);
+    transport.writeRegister(virtio.Register.queue_align, virtio.PAGE_SIZE);
+    transport.writeRegister(virtio.Register.queue_pfn, @intFromPtr(queue) / virtio.PAGE_SIZE);
 
     return queue;
 }
@@ -407,13 +407,13 @@ fn sendControl(request: anytype, response: anytype) void {
     queue_control_commands.descs[0] = .{
         .addr = @intFromPtr(request_bytes),
         .len = @intCast(request_bytes.len),
-        .flags = hw.DescriptorFlags.next,
+        .flags = virtio.DescriptorFlags.next,
         .next = 1,
     };
     queue_control_commands.descs[1] = .{
         .addr = @intFromPtr(response_bytes),
         .len = @intCast(response_bytes.len),
-        .flags = hw.DescriptorFlags.write,
+        .flags = virtio.DescriptorFlags.write,
         .next = 0,
     };
 
@@ -488,16 +488,16 @@ pub fn getDisplayInfo() void {
     }
 }
 
-fn kickQueue(transport: hw.VirtioMmio, queue: *hw.VirtIoQueue, head: u16) void {
-    queue.avail.ring[queue.avail.index % hw.QUEUE_SIZE] = head;
+fn kickQueue(transport: virtio.VirtioMmio, queue: *virtio.VirtIoQueue, head: u16) void {
+    queue.avail.ring[queue.avail.index % virtio.QUEUE_SIZE] = head;
     queue.avail.index +%= 1;
 
     asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
 
-    transport.writeRegister(hw.Register.queue_notify, queue.queue_index);
+    transport.writeRegister(virtio.Register.queue_notify, queue.queue_index);
     queue.last_used_index +%= 1;
 }
 
-fn isBusy(queue: *hw.VirtIoQueue) bool {
+fn isBusy(queue: *virtio.VirtIoQueue) bool {
     return queue.last_used_index != queue.used_index.*;
 }

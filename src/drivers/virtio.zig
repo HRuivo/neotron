@@ -61,11 +61,6 @@ pub const DescriptorFlags = struct {
     pub const write: u16 = 2;
 };
 
-pub const RequestType = enum(u32) {
-    read = 0, // BLK_T_IN: disk → RAM
-    write = 1, // BLK_T_OUT: RAM → disk
-};
-
 pub const VirtioMmio = struct {
     pub const VIRTIO_MAGIC: usize = 0x74726976;
 
