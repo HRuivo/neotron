@@ -61,8 +61,11 @@ const Framebuffer = struct {
     }
 
     pub fn drawRect(self: *Framebuffer, position: Point2D, dimension: Point2D, colour: Colour) void {
-        for (0..dimension.y) |row| {
-            for (0..dimension.x) |col| {
+        if (position.x >= self.width or position.y >= self.height) return;
+        const draw_width = @min(dimension.x, self.width - position.x);
+        const draw_height = @min(dimension.y, self.height - position.y);
+        for (0..draw_height) |row| {
+            for (0..draw_width) |col| {
                 self.putPixel(.{ .x = position.x + col, .y = position.y + row }, colour);
             }
         }
@@ -366,7 +369,9 @@ pub fn init(allocator: std.mem.Allocator) void {
     setScanout(1280, 800, 0, 1);
     resourceFlush();
 
-    framebuffer.drawRect(.{ .x = 100, .y = 100 }, .{ .x = 300, .y = 150 }, Colour.white());
+    framebuffer.drawRect(.{ .x = 1000, .y = 500 }, .{ .x = 350, .y = 120 }, Colour.white());
+    transferToHost2D();
+    framebuffer.drawRect(.{ .x = 100, .y = 100 }, .{ .x = 350, .y = 120 }, Colour.red());
     transferToHost2D();
 
     resourceFlush();
