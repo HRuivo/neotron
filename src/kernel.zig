@@ -2,7 +2,7 @@ const std = @import("std");
 const console = @import("console.zig");
 const syscall = @import("syscall");
 const disk = @import("drivers/disk.zig");
-const display = @import("drivers/display.zig");
+const gpu = @import("drivers/gpu.zig");
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
@@ -333,7 +333,7 @@ export fn kernelMain() noreturn {
     console.print("first sector: {s}\n", .{buffer[0..]}) catch {};
 
     // Display
-    display.init(heap.allocator());
+    gpu.init(heap.allocator());
 
     @memset(buffer[0..], 0);
     const message = "hello from kernel!!!\n";
