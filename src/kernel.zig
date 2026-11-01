@@ -1,8 +1,10 @@
 const std = @import("std");
 const console = @import("console.zig");
 const syscall = @import("syscall");
+const cpu = @import("arch/riscv32/cpu.zig");
 const disk = @import("drivers/disk.zig");
 const gpu = @import("drivers/gpu.zig");
+const context = @import("arch/riscv32/context.zig");
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
@@ -90,84 +92,7 @@ fn yield() void {
 
     const prev: *Process = current_proc;
     current_proc = next;
-    contextSwitch(&prev.sp, &next.sp);
-}
-
-fn switchContext(prev_sp: *usize, next_sp: *const usize) callconv(.naked) void {
-    // a0 = prev_sp
-    // a1 = next_sp
-    _ = prev_sp;
-    _ = next_sp;
-
-    asm volatile (
-    // Save callee-saved registers onto the current process's stack.
-        \\addi sp, sp, -16 * 4
-        \\sw ra,  0  * 4(sp)
-        \\sw s0,  1  * 4(sp)
-        \\sw s1,  2  * 4(sp)
-        \\sw s2,  3  * 4(sp)
-        \\sw s3,  4  * 4(sp)
-        \\sw s4,  5  * 4(sp)
-        \\sw s5,  6  * 4(sp)
-        \\sw s6,  7  * 4(sp)
-        \\sw s7,  8  * 4(sp)
-        \\sw s8,  9  * 4(sp)
-        \\sw s9,  10 * 4(sp)
-        \\sw s10, 11 * 4(sp)
-        \\sw s11, 12 * 4(sp)
-
-        // Switch the stack pointer.
-        \\sw sp, (a0)
-        \\lw sp, (a1)
-
-        // Restore callee-saved registers from the next process's stack.
-        \\lw ra,  0  * 4(sp)
-        \\lw s0,  1  * 4(sp)
-        \\lw s1,  2  * 4(sp)
-        \\lw s2,  3  * 4(sp)
-        \\lw s3,  4  * 4(sp)
-        \\lw s4,  5  * 4(sp)
-        \\lw s5,  6  * 4(sp)
-        \\lw s6,  7  * 4(sp)
-        \\lw s7,  8  * 4(sp)
-        \\lw s8,  9  * 4(sp)
-        \\lw s9,  10 * 4(sp)
-        \\lw s10, 11 * 4(sp)
-        \\lw s11, 12 * 4(sp)
-        \\addi sp, sp, 16 * 4
-        \\ret
-    );
-}
-
-const Context = extern struct {
-    ra: usize,
-    s0: usize,
-    s1: usize,
-    s2: usize,
-    s3: usize,
-    s4: usize,
-    s5: usize,
-    s6: usize,
-    s7: usize,
-    s8: usize,
-    s9: usize,
-    s10: usize,
-    s11: usize,
-    padding: [3]usize, // Preserve your current 64-byte frame.
-};
-
-comptime {
-    if (@sizeOf(Context) != 64)
-        @compileError("context frame must occupy 64 bytes");
-
-    if (@offsetOf(Context, "s11") != 48)
-        @compileError("s11 offset must match context-switch assembly");
-}
-
-fn contextSwitch(prev_sp: *usize, next_sp: *const usize) void {
-    const switch_fn: *const fn (*usize, *const usize) callconv(.c) void =
-        @ptrCast(&switchContext);
-    @call(.never_inline, switch_fn, .{ prev_sp, next_sp });
+    context.contextSwitch(&prev.sp, &next.sp);
 }
 
 fn kernelPanic(message: []const u8, return_address: ?usize) noreturn {
@@ -269,14 +194,14 @@ fn createProcess(
         }
 
         const stack_end = @intFromPtr(&proc.stack) + proc.stack.len;
-        const context: *Context = @ptrFromInt(stack_end - @sizeOf(Context));
+        const initial_context: *context.Context = @ptrFromInt(stack_end - @sizeOf(context.Context));
 
-        context.* = std.mem.zeroes(Context);
-        context.ra = @intFromPtr(&userEntry);
+        initial_context.* = std.mem.zeroes(context.Context);
+        initial_context.ra = @intFromPtr(&userEntry);
 
         proc.pid = i + 1;
         proc.state = .Runnable;
-        proc.sp = @intFromPtr(context);
+        proc.sp = @intFromPtr(initial_context);
         proc.page_table = root;
 
         return proc;
@@ -321,7 +246,7 @@ fn mapPage(
 export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
-    writeCsr("stvec", @intFromPtr(&kernelEntry));
+    cpu.writeCsr("stvec", @intFromPtr(&kernelEntry));
 
     const heap_memory = free_ram[0 .. free_ram_end - free_ram];
     heap = std.heap.FixedBufferAllocator.init(heap_memory);
@@ -510,9 +435,9 @@ fn handleSyscall(tf: *TrapFrame) void {
 }
 
 export fn handleTrap(tf: *TrapFrame) void {
-    const scause = readCsr("scause");
-    const stval = readCsr("stval");
-    var user_pc: usize = readCsr("sepc");
+    const scause = cpu.readCsr("scause");
+    const stval = cpu.readCsr("stval");
+    var user_pc: usize = cpu.readCsr("sepc");
 
     switch (scause) {
         SCAUSE_ECALL => {
@@ -525,18 +450,5 @@ export fn handleTrap(tf: *TrapFrame) void {
         ),
     }
 
-    writeCsr("sepc", user_pc);
-}
-
-pub inline fn readCsr(comptime reg: []const u8) usize {
-    return asm volatile ("csrr %[result], " ++ reg
-        : [result] "=r" (-> usize),
-    );
-}
-
-pub inline fn writeCsr(comptime reg: []const u8, value: usize) void {
-    asm volatile ("csrw " ++ reg ++ ", %[value]"
-        :
-        : [value] "r" (value),
-    );
+    cpu.writeCsr("sepc", user_pc);
 }
