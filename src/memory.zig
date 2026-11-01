@@ -62,3 +62,13 @@ pub fn mapPage(
     const ppn = paddr >> 12;
     table[vpn0] = (ppn << 10) | flags | PageFlags.valid;
 }
+
+pub fn mapKernel(
+    alloc: std.mem.Allocator,
+    root: *PageTable,
+) void {
+    var addr: usize = 0x8020_0000;
+    while (addr < @intFromPtr(free_ram_end)) : (addr += PAGE_SIZE) {
+        mapPage(alloc, root, addr, addr, PageFlags.rwx);
+    }
+}

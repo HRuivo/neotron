@@ -7,8 +7,6 @@ const PROCS_MAX: usize = 8;
 const USER_BASE: usize = 0x0100_0000;
 const SSTATUS_SPIE: usize = 1 << 5;
 
-const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
-
 var processes: [PROCS_MAX]Process = undefined;
 var current_proc: *Process = undefined;
 var idle_proc: *Process = undefined;
@@ -101,16 +99,7 @@ pub fn createProcess(
 
         const root: *memory.PageTable = entries[0..1024];
 
-        var addr: usize = 0x8020_0000;
-        while (addr < @intFromPtr(free_ram_end)) : (addr += memory.PAGE_SIZE) {
-            memory.mapPage(
-                allocator,
-                root,
-                addr,
-                addr,
-                memory.PageFlags.rwx,
-            );
-        }
+        memory.mapKernel(allocator, root);
 
         var offset: usize = 0;
         while (offset < image.len) : (offset += memory.PAGE_SIZE) {
