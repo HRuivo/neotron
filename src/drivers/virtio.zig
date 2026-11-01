@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const QUEUE_SIZE: usize = 16;
 pub const PAGE_SIZE: usize = 4096;
 
@@ -30,6 +32,11 @@ pub const VirtQueueDesc = extern struct {
     next: u16,
 };
 
+comptime {
+    if (@sizeOf(VirtQueueDesc) != 16)
+        @compileError("description must occupy 16 bytes");
+}
+
 pub const VirtQueueAvail = extern struct {
     flags: u16,
     index: u16,
@@ -55,6 +62,15 @@ pub const VirtIoQueue = extern struct {
     used_index: *volatile u16,
     last_used_index: u16,
 };
+
+comptime {
+    if (@offsetOf(VirtIoQueue, "used") != PAGE_SIZE)
+        @compileError("used ring must begin at offset 4096");
+    if (@alignOf(VirtIoQueue) < PAGE_SIZE)
+        @compileError("VirtIO queue must be page aligned");
+    if (@offsetOf(VirtIoQueue, "used") != PAGE_SIZE)
+        @compileError("used ring must begin at offset PAGE_SIZE");
+}
 
 pub const DescriptorFlags = struct {
     pub const next: u16 = 1;
@@ -92,6 +108,29 @@ pub const VirtioMmio = struct {
         self.writeRegister(offset, self.readRegister(offset) | bits);
     }
 };
+
+pub fn initQueue(
+    allocator: std.mem.Allocator,
+    transport: VirtioMmio,
+    index: u32,
+) *VirtIoQueue {
+    const queue = allocator.create(VirtIoQueue) catch @panic("out of memory for VirtIO queue");
+    @memset(std.mem.asBytes(queue), 0);
+
+    queue.queue_index = index;
+    queue.used_index = &queue.used.index;
+
+    transport.writeRegister(Register.queue_sel, index);
+    const max_size = transport.readRegister(Register.queue_num_max);
+    if (max_size < QUEUE_SIZE) {
+        @panic("VirtIO queue is too small or unavailable");
+    }
+    transport.writeRegister(Register.queue_num, QUEUE_SIZE);
+    transport.writeRegister(Register.queue_align, PAGE_SIZE);
+    transport.writeRegister(Register.queue_pfn, @intFromPtr(queue) / PAGE_SIZE);
+
+    return queue;
+}
 
 pub fn kickQueue(
     transport: VirtioMmio,

@@ -5,23 +5,6 @@ const graphics = @import("../graphics/framebuffer.zig");
 const Framebuffer = graphics.Framebuffer;
 const Colour = graphics.Colour;
 
-comptime {
-    if (@alignOf(virtio.VirtIoQueue) < virtio.PAGE_SIZE)
-        @compileError("VirtIO queue must be page aligned");
-    if (@offsetOf(virtio.VirtIoQueue, "used") != virtio.PAGE_SIZE)
-        @compileError("used ring must begin at offset PAGE_SIZE");
-    if (@sizeOf(GpuControlHeader) != 24)
-        @compileError("GPU Command must be of size 24 bytes");
-    if (@sizeOf(ResourceCreate2D) != 40)
-        @compileError("Resource Create 2D must be of size 40 bytes");
-    if (@sizeOf(ResourceAttachBacking) != 48)
-        @compileError("Resource Attach Backing must be of size 48 bytes");
-    if (@sizeOf(SetScanout) != 48)
-        @compileError("Set Scanout must be of size 48 bytes");
-    if (@sizeOf(TransferToHost2D) != 56)
-        @compileError("Transfer To Host 2D must be of size 56 bytes");
-}
-
 const MMIO_BASE: usize = 0x10002000;
 const DEVICE_ID: usize = 16;
 
@@ -69,6 +52,11 @@ const GpuControlHeader = extern struct {
     }
 };
 
+comptime {
+    if (@sizeOf(GpuControlHeader) != 24)
+        @compileError("GPU Command must be of size 24 bytes");
+}
+
 const ResourceCreate2D = extern struct {
     header: GpuControlHeader,
     resource_id: u32,
@@ -86,6 +74,11 @@ const ResourceCreate2D = extern struct {
         return request;
     }
 };
+
+comptime {
+    if (@sizeOf(ResourceCreate2D) != 40)
+        @compileError("Resource Create 2D must be of size 40 bytes");
+}
 
 const ResourceAttachBacking = extern struct {
     header: GpuControlHeader,
@@ -105,6 +98,11 @@ const ResourceAttachBacking = extern struct {
         return request;
     }
 };
+
+comptime {
+    if (@sizeOf(ResourceAttachBacking) != 48)
+        @compileError("Resource Attach Backing must be of size 48 bytes");
+}
 
 const DisplayInfoEntry = extern struct {
     x: u32,
@@ -144,6 +142,11 @@ const SetScanout = extern struct {
     }
 };
 
+comptime {
+    if (@sizeOf(SetScanout) != 48)
+        @compileError("Set Scanout must be of size 48 bytes");
+}
+
 const TransferToHost2D = extern struct {
     header: GpuControlHeader,
     x: u32,
@@ -165,6 +168,11 @@ const TransferToHost2D = extern struct {
         return command;
     }
 };
+
+comptime {
+    if (@sizeOf(TransferToHost2D) != 56)
+        @compileError("Transfer To Host 2D must be of size 56 bytes");
+}
 
 fn transferToHost2D() void {
     var request = TransferToHost2D.init(0, 0, 1280, 800, 1);
@@ -253,8 +261,8 @@ pub fn init(allocator: std.mem.Allocator) void {
 
     gpu.writeRegister(virtio.Register.page_size, virtio.PAGE_SIZE);
 
-    queue_control_commands = initQueue(allocator, gpu, 0);
-    queue_mouse = initQueue(allocator, gpu, 1);
+    queue_control_commands = virtio.initQueue(allocator, gpu, 0);
+    queue_mouse = virtio.initQueue(allocator, gpu, 1);
 
     gpu.setRegisterBits(virtio.Register.device_status, virtio.Status.driver_ok);
     const status = gpu.readRegister(virtio.Register.device_status);
@@ -282,29 +290,6 @@ pub fn init(allocator: std.mem.Allocator) void {
     transferToHost2D();
 
     resourceFlush();
-}
-
-fn initQueue(
-    allocator: std.mem.Allocator,
-    transport: virtio.VirtioMmio,
-    index: u32,
-) *virtio.VirtIoQueue {
-    const queue = allocator.create(virtio.VirtIoQueue) catch @panic("out of memory for VirtIO queue");
-    @memset(std.mem.asBytes(queue), 0);
-
-    queue.queue_index = index;
-    queue.used_index = &queue.used.index;
-
-    transport.writeRegister(virtio.Register.queue_sel, index);
-    const max_size = transport.readRegister(virtio.Register.queue_num_max);
-    if (max_size < virtio.QUEUE_SIZE) {
-        @panic("VirtIO queue is too small or unavailable");
-    }
-    transport.writeRegister(virtio.Register.queue_num, virtio.QUEUE_SIZE);
-    transport.writeRegister(virtio.Register.queue_align, virtio.PAGE_SIZE);
-    transport.writeRegister(virtio.Register.queue_pfn, @intFromPtr(queue) / virtio.PAGE_SIZE);
-
-    return queue;
 }
 
 fn sendControl(request: anytype, response: anytype) void {

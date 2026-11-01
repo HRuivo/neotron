@@ -13,13 +13,6 @@ var blk_req: *VirtIoBlkReq = undefined;
 
 const disk = virtio.VirtioMmio.init(MMIO_BASE);
 
-comptime {
-    if (@sizeOf(virtio.VirtQueueDesc) != 16)
-        @compileError("description must occupy 16 bytes");
-    if (@offsetOf(virtio.VirtIoQueue, "used") != virtio.PAGE_SIZE)
-        @compileError("used ring must begin at offset 4096");
-}
-
 const VirtIoBlkReq = extern struct {
     type: u32,
     reserved: u32,
@@ -55,7 +48,7 @@ pub fn init(allocator: std.mem.Allocator) void {
     // Set out page sizE: We use 4KB pages. This defines PFN (page frame number)
     disk.writeRegister(virtio.Register.page_size, virtio.PAGE_SIZE);
 
-    request_queue = initQueue(allocator, 0);
+    request_queue = virtio.initQueue(allocator, disk, 0);
 
     disk.setRegisterBits(virtio.Register.device_status, virtio.Status.driver_ok);
 
@@ -65,24 +58,6 @@ pub fn init(allocator: std.mem.Allocator) void {
 
     blk_req = allocator.create(VirtIoBlkReq) catch @panic("failed to allocate disk request");
     @memset(std.mem.asBytes(blk_req), 0);
-}
-
-fn initQueue(allocator: std.mem.Allocator, index: u32) *virtio.VirtIoQueue {
-    const queue = allocator.create(virtio.VirtIoQueue) catch @panic("out of memory for VirtIO queue");
-    @memset(std.mem.asBytes(queue), 0);
-
-    queue.queue_index = index;
-    queue.used_index = &queue.used.index;
-
-    disk.writeRegister(virtio.Register.queue_sel, index);
-    const max_size = disk.readRegister(virtio.Register.queue_num_max);
-    if (max_size < virtio.QUEUE_SIZE) {
-        @panic("VirtIO queue is too small or unavailable");
-    }
-    disk.writeRegister(virtio.Register.queue_num, virtio.QUEUE_SIZE);
-    disk.writeRegister(virtio.Register.queue_pfn, @intFromPtr(queue) / virtio.PAGE_SIZE);
-
-    return queue;
 }
 
 pub fn readWriteDisk(
