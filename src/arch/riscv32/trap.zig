@@ -4,7 +4,7 @@ const syscalls = @import("../../syscalls.zig");
 
 const SCAUSE_ECALL: usize = 0x8;
 
-const TrapFrame = packed struct {
+const TrapFrame = extern struct {
     ra: usize,
     gp: usize,
     tp: usize,
@@ -36,7 +36,22 @@ const TrapFrame = packed struct {
     s10: usize,
     s11: usize,
     sp: usize,
+    padding: u32,
 };
+
+comptime {
+    if (@sizeOf(TrapFrame) != 128)
+        @compileError("trap frame must occupy 128 bytes");
+
+    if (@offsetOf(TrapFrame, "a0") != 40)
+        @compileError("a0 offset must match trap assembly");
+
+    if (@offsetOf(TrapFrame, "a3") != 52)
+        @compileError("a3 offset must match trap assembly");
+
+    if (@offsetOf(TrapFrame, "sp") != 120)
+        @compileError("sp offset must match trap assembly");
+}
 
 pub fn init() void {
     cpu.writeCsr("stvec", @intFromPtr(&kernelEntry));
