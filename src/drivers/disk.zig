@@ -85,20 +85,6 @@ fn initQueue(allocator: std.mem.Allocator, index: u32) *virtio.VirtIoQueue {
     return queue;
 }
 
-fn kickQueue(queue: *virtio.VirtIoQueue, head: u16) void {
-    queue.avail.ring[queue.avail.index % virtio.QUEUE_SIZE] = head;
-    queue.avail.index +%= 1;
-
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
-
-    disk.writeRegister(virtio.Register.queue_notify, queue.queue_index);
-    queue.last_used_index +%= 1;
-}
-
-fn isBusy(queue: *virtio.VirtIoQueue) bool {
-    return queue.last_used_index != queue.used_index.*;
-}
-
 pub fn readWriteDisk(
     buffer: *[SECTOR_SIZE]u8,
     sector: u64,
@@ -138,9 +124,9 @@ pub fn readWriteDisk(
 
     blk_req.status = 0xff;
 
-    kickQueue(request_queue, 0);
+    virtio.kickQueue(disk, request_queue, 0);
 
-    while (isBusy(request_queue)) {}
+    while (virtio.isBusy(request_queue)) {}
 
     asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
 

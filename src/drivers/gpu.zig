@@ -324,9 +324,9 @@ fn sendControl(request: anytype, response: anytype) void {
         .next = 0,
     };
 
-    kickQueue(gpu, queue_control_commands, 0);
+    virtio.kickQueue(gpu, queue_control_commands, 0);
 
-    while (isBusy(queue_control_commands)) {
+    while (virtio.isBusy(queue_control_commands)) {
         asm volatile ("nop");
     }
     asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
@@ -393,18 +393,4 @@ pub fn getDisplayInfo() void {
     } else {
         console.print("[GPU] Get Display Info:              [ERR] 0x{x}\n", .{response.header.type}) catch {};
     }
-}
-
-fn kickQueue(transport: virtio.VirtioMmio, queue: *virtio.VirtIoQueue, head: u16) void {
-    queue.avail.ring[queue.avail.index % virtio.QUEUE_SIZE] = head;
-    queue.avail.index +%= 1;
-
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
-
-    transport.writeRegister(virtio.Register.queue_notify, queue.queue_index);
-    queue.last_used_index +%= 1;
-}
-
-fn isBusy(queue: *virtio.VirtIoQueue) bool {
-    return queue.last_used_index != queue.used_index.*;
 }

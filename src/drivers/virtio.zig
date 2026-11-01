@@ -92,3 +92,21 @@ pub const VirtioMmio = struct {
         self.writeRegister(offset, self.readRegister(offset) | bits);
     }
 };
+
+pub fn kickQueue(
+    transport: VirtioMmio,
+    queue: *VirtIoQueue,
+    head: u16,
+) void {
+    queue.avail.ring[queue.avail.index % QUEUE_SIZE] = head;
+    queue.avail.index +%= 1;
+
+    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
+
+    transport.writeRegister(Register.queue_notify, queue.queue_index);
+    queue.last_used_index +%= 1;
+}
+
+pub fn isBusy(queue: *VirtIoQueue) bool {
+    return queue.last_used_index != queue.used_index.*;
+}
