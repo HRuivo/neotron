@@ -35,7 +35,6 @@ pub fn build(b: *std.Build) void {
         "-rf",
         "zig-out",
     }));
-    clean_cmd.step.dependOn(b.default_step);
     clean_step.dependOn(&clean_cmd.step);
 }
 

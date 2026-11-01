@@ -36,12 +36,6 @@ export fn boot() linksection(".text.boot") callconv(.naked) void {
     );
 }
 
-fn delay() void {
-    for (0..30000000) |_| {
-        asm volatile ("nop");
-    }
-}
-
 export fn kernelMain() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
