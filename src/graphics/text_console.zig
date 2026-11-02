@@ -101,4 +101,34 @@ pub const TextConsole = struct {
             self.cursor_row += 1;
         }
     }
+
+    pub fn write(self: *TextConsole, text: []const u8) void {
+        for (text) |ch| {
+            self.putChar(ch);
+        }
+    }
+
+    pub fn setColors(self: *TextConsole, fg: Color, bg: Color) void {
+        self.fg = fg;
+        self.bg = bg;
+    }
+
+    pub fn setCursor(self: *TextConsole, column: usize, row: usize) void {
+        if (column >= self.columns or row >= self.rows) return;
+
+        self.cursor_column = column;
+        self.cursor_row = row;
+    }
+
+    pub fn clear(self: *TextConsole) void {
+        for (self.cells) |*cell| {
+            cell.* = .{
+                .character = ' ',
+                .fg = self.fg,
+                .bg = self.bg,
+            };
+        }
+        self.cursor_column = 0;
+        self.cursor_row = 0;
+    }
 };

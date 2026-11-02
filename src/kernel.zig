@@ -9,6 +9,7 @@ const disk = @import("drivers/disk.zig");
 
 const demo = @import("graphics/demo.zig");
 const font = @import("graphics/font.zig");
+const Color = @import("graphics/framebuffer.zig").Color;
 
 const TextConsole = @import("graphics/text_console.zig").TextConsole;
 
@@ -71,15 +72,15 @@ export fn kernelMain() noreturn {
         &default_font,
         4,
     ) catch @panic("failed to create text console.");
-    const message = "var text_console = TextConsole.init(\n\tallocator,\n\tgpu.getFramebuffer(),\n);";
-    for (message) |ch| {
-        text_console.putChar(ch);
-    }
-    text_console.putChar('!');
-    text_console.putChar('\x08');
-    text_console.putChar('\x08');
-    text_console.putChar('\x08');
-    text_console.putChar('\x08');
+
+    text_console.write("Hello");
+    text_console.write(" World!");
+    text_console.setCursor(0, 5);
+    text_console.setColors(Color.red(), Color.green());
+    text_console.write("From Zig!\n");
+    text_console.clear();
+    text_console.setColors(Color.blue(), Color.white());
+    text_console.write("\tNeotron OS");
     text_console.render();
     gpu.present();
 
