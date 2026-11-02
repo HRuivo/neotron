@@ -61,6 +61,12 @@ pub const TextConsole = struct {
                 cell.bg,
             );
         }
+
+        const x = self.cursor_column * Font.width * self.font_scale;
+        const cell_height = Font.height * self.font_scale;
+        const y = self.cursor_row * cell_height + cell_height - 2;
+        if (self.cursor_column >= self.columns or self.cursor_row >= self.rows) return;
+        self.fb.drawRect(.{ .x = x, .y = y }, .{ .x = Font.width * self.font_scale, .y = self.font_scale }, self.fg);
     }
 
     pub fn setChar(self: TextConsole, character: u8, column: usize, row: usize) void {

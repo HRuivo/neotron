@@ -70,16 +70,16 @@ export fn kernelMain() noreturn {
         allocator,
         gpu.getFramebuffer(),
         &default_font,
-        4,
+        2,
     ) catch @panic("failed to create text console.");
 
     text_console.write("Hello");
     text_console.write(" World!");
     text_console.setCursor(0, 5);
-    text_console.setColors(Color.red(), Color.green());
+    text_console.setColors(Color.red(), Color.white());
     text_console.write("From Zig!\n");
-    text_console.clear();
-    text_console.setColors(Color.blue(), Color.white());
+    //text_console.clear();
+    text_console.setColors(Color.white(), Color.black());
     text_console.write("\tNeotron OS");
     text_console.render();
     gpu.present();
