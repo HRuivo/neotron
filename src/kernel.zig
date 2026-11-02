@@ -8,6 +8,9 @@ const gpu = @import("drivers/gpu.zig");
 const disk = @import("drivers/disk.zig");
 
 const demo = @import("graphics/demo.zig");
+const font = @import("graphics/font.zig");
+
+const TextConsole = @import("graphics/text_console.zig").TextConsole;
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
@@ -54,7 +57,16 @@ export fn kernelMain() noreturn {
     // Display
     gpu.init(allocator);
 
-    demo.draw(gpu.getFramebuffer());
+    //demo.draw(gpu.getFramebuffer());
+
+    const default_font = font.default_font;
+    const text_console = TextConsole.init(allocator, gpu.getFramebuffer(), &default_font, 4) catch @panic("failed to create text console.");
+    text_console.setCharacter('H', 2, 2);
+    text_console.setCharacter('e', 3, 2);
+    text_console.setCharacter('l', 4, 3);
+    text_console.setCharacter('l', 5, 6);
+    text_console.setCharacter('O', 6, 6);
+    text_console.render();
     gpu.present();
 
     @memset(buffer[0..], 0);

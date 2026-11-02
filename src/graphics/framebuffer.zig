@@ -1,6 +1,6 @@
 const std = @import("std");
-const font = @import("font.zig");
 const console = @import("../console.zig");
+const Font = @import("font.zig").Font;
 
 pub const Framebuffer = struct {
     pixels: []u8,
@@ -47,11 +47,16 @@ pub const Framebuffer = struct {
         }
     }
 
-    pub fn drawGlyph(self: *Framebuffer, position: Point2D, character: u8, fg: Color, bg: Color) void {
-        const supported = if (character < 32 or character > 126) '?' else character;
-        const glyph_offset = (supported - 32);
-
-        const glyph = font.glyphs[glyph_offset];
+    pub fn drawGlyph(
+        self: *Framebuffer,
+        font: *const Font,
+        scale: usize,
+        position: Point2D,
+        character: u8,
+        fg: Color,
+        bg: Color,
+    ) void {
+        const glyph = font.getGlyph(character);
 
         for (0..8) |row| {
             const row_bits = glyph[row];
@@ -59,9 +64,9 @@ pub const Framebuffer = struct {
             for (0..8) |col| {
                 const mask = @as(u8, 1) << @as(u3, @intCast(col));
                 const is_foreground = (row_bits & mask) != 0;
-                const x = position.x + col * 2;
-                const y = position.y + row * 2;
-                self.drawRect(.{ .x = x, .y = y }, .{ .x = 2, .y = 2 }, if (is_foreground) fg else bg);
+                const x = position.x + col * scale;
+                const y = position.y + row * scale;
+                self.drawRect(.{ .x = x, .y = y }, .{ .x = scale, .y = scale }, if (is_foreground) fg else bg);
             }
         }
     }

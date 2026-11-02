@@ -6,10 +6,28 @@
 // * Based on:
 // * http://dimensionalrift.homelinux.net/combuster/mos3/?p=viewsource&file=/modules/gfx/font8_8.asm
 
-pub const width = 8;
-pub const height = 16;
+pub const default_font: Font = .{
+    .glyphs = &glyphs,
+};
 
-pub const glyphs: [95][8]u8 = .{
+pub const Font = struct {
+    glyphs: []const [8]u8,
+
+    pub const width: usize = 8;
+    pub const height: usize = 8;
+
+    pub fn isSupported(character: u8) bool {
+        return character >= 32 and character <= 126;
+    }
+
+    pub fn getGlyph(self: *const Font, character: u8) [8]u8 {
+        const supported = if (isSupported(character)) character else '?';
+        const glyph_offset: usize = @as(usize, (supported - 32));
+        return self.glyphs[glyph_offset];
+    }
+};
+
+const glyphs: [95][8]u8 = .{
     .{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, // U+0020 (space)
     .{ 0x18, 0x3C, 0x3C, 0x18, 0x18, 0x00, 0x18, 0x00 }, // U+0021 (!)
     .{ 0x36, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, // U+0022 (")
