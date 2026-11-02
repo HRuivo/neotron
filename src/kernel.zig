@@ -54,25 +54,34 @@ export fn kernelMain() noreturn {
     disk.readWriteDisk(&buffer, 0, false);
     console.print("first sector: {s}\n", .{buffer[0..]}) catch {};
 
+    // @memset(buffer[0..], 0);
+    // const message = "hello from kernel!!!\n";
+    // @memcpy(buffer[0..message.len], message);
+    // disk.readWriteDisk(&buffer, 0, true);
+
     // Display
     gpu.init(allocator);
 
     //demo.draw(gpu.getFramebuffer());
 
     const default_font = font.default_font;
-    const text_console = TextConsole.init(allocator, gpu.getFramebuffer(), &default_font, 4) catch @panic("failed to create text console.");
-    text_console.setCharacter('H', 2, 2);
-    text_console.setCharacter('e', 3, 2);
-    text_console.setCharacter('l', 4, 3);
-    text_console.setCharacter('l', 5, 6);
-    text_console.setCharacter('O', 6, 6);
+    var text_console = TextConsole.init(
+        allocator,
+        gpu.getFramebuffer(),
+        &default_font,
+        4,
+    ) catch @panic("failed to create text console.");
+    const message = "var text_console = TextConsole.init(\n\tallocator,\n\tgpu.getFramebuffer(),\n);";
+    for (message) |ch| {
+        text_console.putChar(ch);
+    }
+    text_console.putChar('!');
+    text_console.putChar('\x08');
+    text_console.putChar('\x08');
+    text_console.putChar('\x08');
+    text_console.putChar('\x08');
     text_console.render();
     gpu.present();
-
-    @memset(buffer[0..], 0);
-    const message = "hello from kernel!!!\n";
-    @memcpy(buffer[0..message.len], message);
-    disk.readWriteDisk(&buffer, 0, true);
 
     process.init(allocator);
     _ = process.createProcess(allocator, shell_image);

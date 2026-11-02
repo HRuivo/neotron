@@ -16,7 +16,8 @@ pub const TextConsole = struct {
     fb: *graphics.Framebuffer,
     font: *const Font,
     font_scale: usize,
-    cursor: Point2D,
+    cursor_column: usize,
+    cursor_row: usize,
     cells: []Cell,
     fg: Color,
     bg: Color,
@@ -37,11 +38,12 @@ pub const TextConsole = struct {
             .rows = rows,
             .fb = fb,
             .cells = cells,
-            .cursor = .{ .x = 0, .y = 0 },
+            .cursor_column = 0,
+            .cursor_row = 0,
             .font = font,
             .font_scale = font_scale,
             .fg = Color.white(),
-            .bg = Color.red(),
+            .bg = Color.black(),
         };
     }
 
@@ -61,7 +63,7 @@ pub const TextConsole = struct {
         }
     }
 
-    pub fn setCharacter(self: TextConsole, character: u8, column: usize, row: usize) void {
+    pub fn setChar(self: TextConsole, character: u8, column: usize, row: usize) void {
         if (column >= self.columns or row >= self.rows) return;
 
         const cell_idx = row * self.columns + column;
@@ -70,5 +72,33 @@ pub const TextConsole = struct {
             .fg = self.fg,
             .bg = self.bg,
         };
+    }
+
+    pub fn putChar(self: *TextConsole, character: u8) void {
+        if (self.cursor_row >= self.rows) return;
+        switch (character) {
+            '\n' => {
+                self.cursor_column = 0;
+                self.cursor_row += 1;
+            },
+            '\r' => {
+                self.cursor_column = 0;
+            },
+            '\t' => {
+                self.cursor_column += 4 - (self.cursor_column % 4);
+            },
+            '\x08' => {
+                if (self.cursor_column > 0) self.cursor_column -= 1;
+                self.setChar(' ', self.cursor_column, self.cursor_row);
+            },
+            else => {
+                self.setChar(character, self.cursor_column, self.cursor_row);
+                self.cursor_column += 1;
+            },
+        }
+        if (self.cursor_column >= self.columns) {
+            self.cursor_column = 0;
+            self.cursor_row += 1;
+        }
     }
 };
