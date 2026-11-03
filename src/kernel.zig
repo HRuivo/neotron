@@ -62,6 +62,7 @@ export fn kernelMain() noreturn {
 
     // Display
     gpu.init(allocator);
+    gpu.getCapsetInfo();
 
     //demo.draw(gpu.getFramebuffer());
 
@@ -85,6 +86,14 @@ export fn kernelMain() noreturn {
     text_console.clearLine();
     //text_console.clearToEndOfLine();
     text_console.render();
+
+    gpu.getFramebuffer().drawRect(.{
+        .x = 5,
+        .y = 5,
+    }, .{
+        .x = 100,
+        .y = 100,
+    }, Color.white());
     gpu.present();
 
     process.init(allocator);

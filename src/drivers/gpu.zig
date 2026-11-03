@@ -21,6 +21,7 @@ const CommandType = enum(u32) {
     resource_flush = 0x104,
     transfer_to_host_2d = 0x0105,
     resource_attach_backing = 0x0106,
+    get_capset_info = 0x0108,
 };
 
 const ResourceFormat = enum(u32) {
@@ -30,6 +31,7 @@ const ResourceFormat = enum(u32) {
 const ResponseType = enum(u32) {
     ok_nodata = 0x1100,
     ok_display_info = 0x1101,
+    ok_capset_info = 0x1102,
     _,
 };
 
@@ -223,6 +225,27 @@ fn resourceFlush() void {
     }
 }
 
+const GetCapsetInfo = extern struct {
+    header: GpuControlHeader,
+    index: u32,
+    padding: u32,
+
+    fn init(index: u32) GetCapsetInfo {
+        var command = std.mem.zeroes(GetCapsetInfo);
+        command.header = GpuControlHeader.init(.get_capset_info);
+        command.index = index;
+        return command;
+    }
+};
+
+const CapsetInfoResponse = extern struct {
+    header: GpuControlHeader,
+    id: u32,
+    max_version: u32,
+    max_size: u32,
+    padding: u32,
+};
+
 pub fn init(allocator: std.mem.Allocator) void {
     const magic = gpu.readRegister(virtio.Register.magic);
     if (magic != virtio.VirtioMmio.VIRTIO_MAGIC) {
@@ -248,12 +271,19 @@ pub fn init(allocator: std.mem.Allocator) void {
 
     gpu.writeRegister(0x14, 0);
     const feature_word: u32 = gpu.readRegister(0x10);
+    const has_virgl = (feature_word & 1) != 0;
     console.print("[GPU] Feature word: 0x{x}\n", .{feature_word}) catch {};
+    if (has_virgl) {
+        console.print("[GPU] Has VIRGL\n", .{}) catch {};
+    }
 
     // select driver-feature page 0.
     gpu.writeRegister(0x24, 0);
-    // accept no optinal features on that page.
-    gpu.writeRegister(0x20, 0);
+    // accept VirGL if offered.
+    gpu.writeRegister(0x20, feature_word & 1);
+
+    const numcapsets = gpu.readRegister(0x108);
+    console.print("[GPU] Num Capability Sets: {d}\n", .{numcapsets}) catch {};
 
     gpu.writeRegister(virtio.Register.queue_sel, 0);
     const queue_num_max = gpu.readRegister(virtio.Register.queue_num_max);
@@ -350,6 +380,21 @@ pub fn createResource2D(format: ResourceFormat, width: u32, height: u32) void {
         console.print("[GPU] Create Resource 2D:            [OK]\n", .{}) catch {};
     } else {
         console.print("[GPU] Create Resource 2D:            [ERR] 0x{x}\n", .{response.type}) catch {};
+    }
+}
+
+pub fn getCapsetInfo() void {
+    var request = GetCapsetInfo.init(0);
+    var response = std.mem.zeroes(CapsetInfoResponse);
+
+    sendControl(&request, &response);
+
+    const result: ResponseType = @fromBackingInt(@intCast(response.header.type));
+    if (result == .ok_capset_info) {
+        console.print("[GPU] Capability Set:                [OK]\n", .{}) catch {};
+        console.print("[GPU] Capability Set: {d}, {d}, {d}\n", .{ response.id, response.max_version, response.max_size }) catch {};
+    } else {
+        console.print("[GPU] Capability Set:                [ERR] 0x{x}\n", .{response.header.type}) catch {};
     }
 }
 
