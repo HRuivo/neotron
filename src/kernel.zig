@@ -63,7 +63,7 @@ export fn kernelMain() noreturn {
     // Display
     gpu.init(allocator);
     gpu.getCapsetInfo();
-    gpu.getCapset(allocator, 1, 1, 308) catch {};
+    gpu.getCapset(1, 1) catch {};
 
     //demo.draw(gpu.getFramebuffer());
 

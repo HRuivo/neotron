@@ -279,34 +279,22 @@ const VirglCapsV1 = extern struct {
 };
 
 pub fn getCapset(
-    alloc: std.mem.Allocator,
     id: u32,
     version: u32,
-    size: u32,
 ) !void {
     const request = GetCapset.init(id, version);
-    const response_size = @sizeOf(GpuControlHeader) + size;
-    const response_bytes = try alloc.alloc(u8, response_size);
-    defer alloc.free(response_bytes);
+    var response = std.mem.zeroes(CapsetResponse);
 
-    const written = sendControlBytes(std.mem.asBytes(&request), response_bytes);
+    sendControl(&request, &response);
 
-    if (written < @sizeOf(GpuControlHeader) or written > response_bytes.len) {
-        return error.ResponseTooShort;
-    }
-
-    var header: GpuControlHeader = undefined;
-    @memcpy(
-        std.mem.asBytes(&header),
-        response_bytes[0..@sizeOf(GpuControlHeader)],
-    );
-
-    const result: ResponseType = @fromBackingInt(@intCast(header.type));
+    const result: ResponseType = @fromBackingInt(@intCast(response.header.type));
     if (result == .ok_capset) {
-        console.print("[GPU] Capset: written response len: {d} [OK]\n", .{written}) catch {};
-        if (written == response_size) {}
+        console.print("[GPU] Capset:                        [OK]\n", .{}) catch {};
+        console.print("      GLSL Level:        {d}\n", .{response.caps.glsl_level}) catch {};
+        console.print("      Max Samples:       {d}\n", .{response.caps.max_samples}) catch {};
+        console.print("      Max Viewports:     {d}\n", .{response.caps.max_viewports}) catch {};
     } else {
-        console.print("[GPU] Capset:                        [ERR] 0x{x}\n", .{header.type}) catch {};
+        console.print("[GPU] Capset:                        [ERR] 0x{x}\n", .{response.header.type}) catch {};
     }
 }
 
