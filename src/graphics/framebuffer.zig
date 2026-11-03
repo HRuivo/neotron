@@ -1,4 +1,6 @@
 const std = @import("std");
+const console = @import("../console.zig");
+const Font = @import("font.zig").Font;
 
 pub const Framebuffer = struct {
     pixels: []u8,
@@ -24,7 +26,7 @@ pub const Framebuffer = struct {
         };
     }
 
-    pub fn putPixel(self: *Framebuffer, position: Point2D, colour: Colour) void {
+    pub fn putPixel(self: *Framebuffer, position: Point2D, colour: Color) void {
         if (position.x < self.width and position.y < self.height) {
             const byte_offset = (position.y * self.width + position.x) * 4;
             self.pixels[byte_offset + 0] = colour.b;
@@ -34,7 +36,7 @@ pub const Framebuffer = struct {
         }
     }
 
-    pub fn drawRect(self: *Framebuffer, position: Point2D, dimension: Point2D, colour: Colour) void {
+    pub fn drawRect(self: *Framebuffer, position: Point2D, dimension: Point2D, colour: Color) void {
         if (position.x >= self.width or position.y >= self.height) return;
         const draw_width = @min(dimension.x, self.width - position.x);
         const draw_height = @min(dimension.y, self.height - position.y);
@@ -44,15 +46,39 @@ pub const Framebuffer = struct {
             }
         }
     }
+
+    pub fn drawGlyph(
+        self: *Framebuffer,
+        font: *const Font,
+        scale: usize,
+        position: Point2D,
+        character: u8,
+        fg: Color,
+        bg: Color,
+    ) void {
+        const glyph = font.getGlyph(character);
+
+        for (0..8) |row| {
+            const row_bits = glyph[row];
+
+            for (0..8) |col| {
+                const mask = @as(u8, 1) << @as(u3, @intCast(col));
+                const is_foreground = (row_bits & mask) != 0;
+                const x = position.x + col * scale;
+                const y = position.y + row * scale;
+                self.drawRect(.{ .x = x, .y = y }, .{ .x = scale, .y = scale }, if (is_foreground) fg else bg);
+            }
+        }
+    }
 };
 
-pub const Colour = struct {
+pub const Color = struct {
     r: u8,
     g: u8,
     b: u8,
     a: u8 = 255,
 
-    pub fn white() Colour {
+    pub fn white() Color {
         return .{
             .r = 255,
             .g = 255,
@@ -60,7 +86,7 @@ pub const Colour = struct {
         };
     }
 
-    pub fn black() Colour {
+    pub fn black() Color {
         return .{
             .r = 0,
             .g = 0,
@@ -68,7 +94,7 @@ pub const Colour = struct {
         };
     }
 
-    pub fn red() Colour {
+    pub fn red() Color {
         return .{
             .r = 255,
             .g = 0,
@@ -76,7 +102,7 @@ pub const Colour = struct {
         };
     }
 
-    pub fn green() Colour {
+    pub fn green() Color {
         return .{
             .r = 0,
             .g = 255,
@@ -84,7 +110,7 @@ pub const Colour = struct {
         };
     }
 
-    pub fn blue() Colour {
+    pub fn blue() Color {
         return .{
             .r = 0,
             .g = 0,

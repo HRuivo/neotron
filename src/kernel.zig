@@ -8,6 +8,10 @@ const gpu = @import("drivers/gpu.zig");
 const disk = @import("drivers/disk.zig");
 
 const demo = @import("graphics/demo.zig");
+const font = @import("graphics/font.zig");
+const Color = @import("graphics/framebuffer.zig").Color;
+
+const TextConsole = @import("graphics/text_console.zig").TextConsole;
 
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
@@ -51,16 +55,37 @@ export fn kernelMain() noreturn {
     disk.readWriteDisk(&buffer, 0, false);
     console.print("first sector: {s}\n", .{buffer[0..]}) catch {};
 
+    // @memset(buffer[0..], 0);
+    // const message = "hello from kernel!!!\n";
+    // @memcpy(buffer[0..message.len], message);
+    // disk.readWriteDisk(&buffer, 0, true);
+
     // Display
     gpu.init(allocator);
 
-    demo.draw(gpu.getFramebuffer());
-    gpu.present();
+    //demo.draw(gpu.getFramebuffer());
 
-    @memset(buffer[0..], 0);
-    const message = "hello from kernel!!!\n";
-    @memcpy(buffer[0..message.len], message);
-    disk.readWriteDisk(&buffer, 0, true);
+    const default_font = font.default_font;
+    var text_console = TextConsole.init(
+        allocator,
+        gpu.getFramebuffer(),
+        &default_font,
+        2,
+    ) catch @panic("failed to create text console.");
+
+    text_console.write("Hello");
+    text_console.write(" World!");
+    text_console.setCursor(0, 5);
+    text_console.setColors(Color.red(), Color.white());
+    text_console.write("From Zig!\n");
+    //text_console.clear();
+    text_console.setColors(Color.white(), Color.black());
+    text_console.write("\tNeotron OS");
+    text_console.setCursor(text_console.cursor_column - 5, text_console.cursor_row);
+    text_console.clearLine();
+    //text_console.clearToEndOfLine();
+    text_console.render();
+    gpu.present();
 
     process.init(allocator);
     _ = process.createProcess(allocator, shell_image);
