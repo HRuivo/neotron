@@ -81,6 +81,9 @@ export fn kernelMain() noreturn {
     //text_console.clear();
     text_console.setColors(Color.white(), Color.black());
     text_console.write("\tNeotron OS");
+    text_console.setCursor(text_console.cursor_column - 5, text_console.cursor_row);
+    text_console.clearLine();
+    //text_console.clearToEndOfLine();
     text_console.render();
     gpu.present();
 

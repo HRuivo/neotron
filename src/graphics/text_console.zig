@@ -137,4 +137,32 @@ pub const TextConsole = struct {
         self.cursor_column = 0;
         self.cursor_row = 0;
     }
+
+    pub fn clearToEndOfLine(self: *TextConsole) void {
+        const start = self.cursor_row * self.columns + self.cursor_column;
+        const end = (self.cursor_row + 1) * self.columns;
+
+        if (self.cursor_row >= self.rows or self.cursor_column >= self.columns) return;
+
+        @memset(self.cells[start..end], Cell{
+            .character = ' ',
+            .fg = self.fg,
+            .bg = self.bg,
+        });
+    }
+
+    pub fn clearLine(self: *TextConsole) void {
+        const start = self.cursor_row * self.columns;
+        const end = (self.cursor_row + 1) * self.columns;
+
+        if (self.cursor_row >= self.rows or self.cursor_column >= self.columns) return;
+
+        @memset(self.cells[start..end], Cell{
+            .character = ' ',
+            .fg = self.fg,
+            .bg = self.bg,
+        });
+
+        self.cursor_column = 0;
+    }
 };
