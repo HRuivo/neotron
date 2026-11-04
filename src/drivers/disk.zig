@@ -7,16 +7,20 @@ const DEVICE_ID: usize = 2;
 
 const SECTOR_SIZE: usize = 512;
 
-var request_queue: *virtio.VirtIoQueue = undefined;
+const transport = virtio.VirtioMmio.init(MMIO_BASE);
+
+var queue: *virtio.VirtIoQueue = undefined;
 var blk_capacity: u64 = 0;
 var blk_req: *VirtIoBlkReq = undefined;
 
-const disk = virtio.VirtioMmio.init(MMIO_BASE);
-
-const VirtIoBlkReq = extern struct {
+const BlockRequestHeader = extern struct {
     type: u32,
     reserved: u32,
     sector: u64,
+};
+
+const VirtIoBlkReq = extern struct {
+    header: BlockRequestHeader,
     data: [SECTOR_SIZE]u8,
     status: u8,
 };
@@ -28,32 +32,32 @@ const RequestType = enum(u32) {
 
 pub fn init(allocator: std.mem.Allocator) void {
     // device check
-    if (disk.readRegister(virtio.Register.magic) != virtio.VirtioMmio.VIRTIO_MAGIC) {
+    if (transport.readRegister(virtio.Register.magic) != virtio.VirtioMmio.VIRTIO_MAGIC) {
         @panic("[virtio][DISK]: invalid magic value");
     }
-    if (disk.readRegister(virtio.Register.version) != 1) {
+    if (transport.readRegister(virtio.Register.version) != 1) {
         @panic("[virtio][DISK]: invalid version");
     }
-    if (disk.readRegister(virtio.Register.device_id) != DEVICE_ID) {
-        @panic("[virtio][DISK]: invalid devide id");
+    if (transport.readRegister(virtio.Register.device_id) != DEVICE_ID) {
+        @panic("[virtio][DISK]: invalid device id");
     }
 
     // 1. Reset the device
-    disk.writeRegister(virtio.Register.device_status, 0);
+    transport.writeRegister(virtio.Register.device_status, 0);
     // 2. Set the ACKNOWLEDGE status bit: We found the device.
-    disk.setRegisterBits(virtio.Register.device_status, virtio.Status.ack);
+    transport.setRegisterBits(virtio.Register.device_status, virtio.Status.ack);
     // 3. Set the DRIVER status bit: We know how to use the device.
-    disk.setRegisterBits(virtio.Register.device_status, virtio.Status.driver);
+    transport.setRegisterBits(virtio.Register.device_status, virtio.Status.driver);
 
-    // Set out page sizE: We use 4KB pages. This defines PFN (page frame number)
-    disk.writeRegister(virtio.Register.page_size, virtio.PAGE_SIZE);
+    // Set the page size used to calculate the queue's page frame number.
+    transport.writeRegister(virtio.Register.page_size, virtio.PAGE_SIZE);
 
-    request_queue = virtio.initQueue(allocator, disk, 0);
+    queue = virtio.VirtIoQueue.init(allocator, transport, 0);
 
-    disk.setRegisterBits(virtio.Register.device_status, virtio.Status.driver_ok);
+    transport.setRegisterBits(virtio.Register.device_status, virtio.Status.driver_ok);
 
     // Get the disk capacity
-    blk_capacity = disk.readRegister64(virtio.Register.device_config + 0) * SECTOR_SIZE;
+    blk_capacity = transport.readRegister64(virtio.Register.device_config + 0) * SECTOR_SIZE;
     console.print("virtio-blk: capacity is {d} bytes\n", .{blk_capacity}) catch {};
 
     blk_req = allocator.create(VirtIoBlkReq) catch @panic("failed to allocate disk request");
@@ -69,48 +73,68 @@ pub fn readWriteDisk(
         @panic("disk sector out of range");
     }
 
-    blk_req.sector = sector;
     const operation: RequestType = if (is_write) .write else .read;
-    blk_req.type = @backingInt(operation);
     if (is_write) {
         @memcpy(blk_req.data[0..], buffer[0..]);
     }
 
-    request_queue.descs[0] = .{
-        .addr = @intFromPtr(blk_req),
-        .len = 16,
-        .flags = virtio.DescriptorFlags.next,
-        .next = 1,
-    };
+    const written = submitRequest(sector, operation);
 
-    request_queue.descs[1] = .{
-        .addr = @intFromPtr(&blk_req.data),
-        .len = SECTOR_SIZE,
-        .flags = virtio.DescriptorFlags.next | (if (is_write) 0 else virtio.DescriptorFlags.write),
-        .next = 2,
-    };
+    // A read writes the sector data followed by the status byte.
+    // A write only writes the status byte.
+    const expected_written: usize =
+        if (is_write) 1 else SECTOR_SIZE + 1;
 
-    request_queue.descs[2] = .{
-        .addr = @intFromPtr(&blk_req.status),
-        .len = @sizeOf(u8),
-        .flags = virtio.DescriptorFlags.write,
-        .next = 0,
-    };
-
-    blk_req.status = 0xff;
-
-    virtio.kickQueue(disk, request_queue, 0);
-
-    while (virtio.isBusy(request_queue)) {}
-
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
+    if (written < expected_written) {
+        console.print(
+            "virtio: short response for sector={d}\n",
+            .{sector},
+        ) catch {};
+        return;
+    }
 
     if (blk_req.status != 0) {
-        console.print("virtio: warn: failed to read/write sector={d} status={d}\n", .{ sector, blk_req.status }) catch {};
+        console.print(
+            "virtio: failed to read/write sector={d} status={d}\n",
+            .{ sector, blk_req.status },
+        ) catch {};
         return;
     }
 
     if (!is_write) {
         @memcpy(buffer[0..], blk_req.data[0..]);
     }
+}
+
+// The shared request and descriptors support one operation at a time.
+fn submitRequest(sector: u64, operation: RequestType) usize {
+    blk_req.header = .{
+        .type = @backingInt(operation),
+        .reserved = 0,
+        .sector = sector,
+    };
+    blk_req.status = 0xff;
+
+    queue.descs[0] = .{
+        .addr = @intFromPtr(&blk_req.header),
+        .len = @sizeOf(BlockRequestHeader),
+        .flags = virtio.DescriptorFlags.next,
+        .next = 1,
+    };
+
+    queue.descs[1] = .{
+        .addr = @intFromPtr(&blk_req.data),
+        .len = SECTOR_SIZE,
+        .flags = virtio.DescriptorFlags.next | (if (operation == .read) virtio.DescriptorFlags.write else 0),
+        .next = 2,
+    };
+
+    queue.descs[2] = .{
+        .addr = @intFromPtr(&blk_req.status),
+        .len = @sizeOf(u8),
+        .flags = virtio.DescriptorFlags.write,
+        .next = 0,
+    };
+
+    return transport.submitAndWait(queue, 0);
 }
