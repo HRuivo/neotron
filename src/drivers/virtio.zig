@@ -61,6 +61,33 @@ pub const VirtIoQueue = extern struct {
     queue_index: usize,
     used_index: *volatile u16,
     expected_used_index: u16,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        transport: VirtioMmio,
+        index: u32,
+    ) *VirtIoQueue {
+        const queue = allocator.create(VirtIoQueue) catch @panic("out of memory for VirtIO queue");
+        @memset(std.mem.asBytes(queue), 0);
+
+        queue.queue_index = index;
+        queue.used_index = &queue.used.index;
+
+        transport.writeRegister(Register.queue_sel, index);
+        const max_size = transport.readRegister(Register.queue_num_max);
+        if (max_size < QUEUE_SIZE) {
+            @panic("VirtIO queue is too small or unavailable");
+        }
+        transport.writeRegister(Register.queue_num, QUEUE_SIZE);
+        transport.writeRegister(Register.queue_align, PAGE_SIZE);
+        transport.writeRegister(Register.queue_pfn, @intFromPtr(queue) / PAGE_SIZE);
+
+        return queue;
+    }
+
+    pub fn isBusy(self: *const VirtIoQueue) bool {
+        return self.expected_used_index != self.used_index.*;
+    }
 };
 
 comptime {
@@ -107,52 +134,83 @@ pub const VirtioMmio = struct {
     pub fn setRegisterBits(self: VirtioMmio, offset: usize, bits: u32) void {
         self.writeRegister(offset, self.readRegister(offset) | bits);
     }
-};
 
-pub fn initQueue(
-    allocator: std.mem.Allocator,
-    transport: VirtioMmio,
-    index: u32,
-) *VirtIoQueue {
-    const queue = allocator.create(VirtIoQueue) catch @panic("out of memory for VirtIO queue");
-    @memset(std.mem.asBytes(queue), 0);
+    pub fn request(
+        self: VirtioMmio,
+        queue: *VirtIoQueue,
+        input: []const u8,
+        output: []u8,
+    ) usize {
+        queue.descs[0] = .{
+            .addr = @intFromPtr(input.ptr),
+            .len = @intCast(input.len),
+            .flags = DescriptorFlags.next,
+            .next = 1,
+        };
+        queue.descs[1] = .{
+            .addr = @intFromPtr(output.ptr),
+            .len = @intCast(output.len),
+            .flags = DescriptorFlags.write,
+            .next = 0,
+        };
 
-    queue.queue_index = index;
-    queue.used_index = &queue.used.index;
-
-    transport.writeRegister(Register.queue_sel, index);
-    const max_size = transport.readRegister(Register.queue_num_max);
-    if (max_size < QUEUE_SIZE) {
-        @panic("VirtIO queue is too small or unavailable");
+        return self.submitAndWait(queue, 0);
     }
-    transport.writeRegister(Register.queue_num, QUEUE_SIZE);
-    transport.writeRegister(Register.queue_align, PAGE_SIZE);
-    transport.writeRegister(Register.queue_pfn, @intFromPtr(queue) / PAGE_SIZE);
 
-    return queue;
-}
+    pub fn submitAndWait(
+        self: VirtioMmio,
+        queue: *VirtIoQueue,
+        head: u16,
+    ) usize {
+        const used_slot = queue.expected_used_index % QUEUE_SIZE;
 
-pub fn kickQueue(
-    transport: VirtioMmio,
-    queue: *VirtIoQueue,
-    head: u16,
-) void {
-    queue.avail.ring[queue.avail.index % QUEUE_SIZE] = head;
+        self.kickQueue(queue, head);
 
-    // Record the expected completion before exposing the request.
-    queue.expected_used_index +%= 1;
+        while (queue.isBusy()) {
+            asm volatile ("nop");
+        }
 
-    // Publish descriptors and the ring entry before the new index.
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
+        // Make device writes visible before reading the completion or response.
+        asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
 
-    queue.avail.index +%= 1;
+        const completed: *volatile VirtQueueUsedElem =
+            &queue.used.ring[used_slot];
 
-    // Publish the new index before notifying the device.
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
+        return completed.len;
+    }
 
-    transport.writeRegister(Register.queue_notify, queue.queue_index);
-}
+    pub fn requestTyped(
+        transport: VirtioMmio,
+        queue: *VirtIoQueue,
+        input: anytype,
+        output: anytype,
+    ) usize {
+        return request(
+            transport,
+            queue,
+            std.mem.asBytes(input),
+            std.mem.asBytes(output),
+        );
+    }
 
-pub fn isBusy(queue: *VirtIoQueue) bool {
-    return queue.expected_used_index != queue.used_index.*;
-}
+    pub fn kickQueue(
+        transport: VirtioMmio,
+        queue: *VirtIoQueue,
+        head: u16,
+    ) void {
+        queue.avail.ring[queue.avail.index % QUEUE_SIZE] = head;
+
+        // Record the expected completion before exposing the request.
+        queue.expected_used_index +%= 1;
+
+        // Publish descriptors and the ring entry before the new index.
+        asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
+
+        queue.avail.index +%= 1;
+
+        // Publish the new index before notifying the device.
+        asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
+
+        transport.writeRegister(Register.queue_notify, queue.queue_index);
+    }
+};

@@ -55,11 +55,6 @@ export fn kernelMain() noreturn {
     disk.readWriteDisk(&buffer, 0, false);
     console.print("first sector: {s}\n", .{buffer[0..]}) catch {};
 
-    // @memset(buffer[0..], 0);
-    // const message = "hello from kernel!!!\n";
-    // @memcpy(buffer[0..message.len], message);
-    // disk.readWriteDisk(&buffer, 0, true);
-
     // Display
     gpu.init(allocator);
     gpu.getCapsetInfo();
@@ -81,21 +76,12 @@ export fn kernelMain() noreturn {
     text_console.setCursor(0, 5);
     text_console.setColors(Color.red(), Color.white());
     text_console.write("From Zig!\n");
-    //text_console.clear();
     text_console.setColors(Color.white(), Color.black());
     text_console.write("\tNeotron OS");
     text_console.setCursor(text_console.cursor_column - 5, text_console.cursor_row);
     text_console.clearLine();
-    //text_console.clearToEndOfLine();
     text_console.render();
 
-    gpu.getFramebuffer().drawRect(.{
-        .x = 5,
-        .y = 5,
-    }, .{
-        .x = 100,
-        .y = 100,
-    }, Color.white());
     gpu.present();
 
     process.init(allocator);
