@@ -14,7 +14,17 @@ var queue_mouse: *virtio.VirtIoQueue = undefined;
 
 var framebuffer: Framebuffer = undefined;
 
-const CommandType = enum(u32) { get_display_info = 0x0100, resource_create_2d = 0x0101, set_scanout = 0x0103, resource_flush = 0x104, transfer_to_host_2d = 0x0105, resource_attach_backing = 0x0106, get_capset_info = 0x0108, get_capset = 0x0109 };
+const CommandType = enum(u32) {
+    get_display_info = 0x0100,
+    resource_create_2d = 0x0101,
+    set_scanout = 0x0103,
+    resource_flush = 0x104,
+    transfer_to_host_2d = 0x0105,
+    resource_attach_backing = 0x0106,
+    get_capset_info = 0x0108,
+    get_capset = 0x0109,
+    ctx_create = 0x0200,
+};
 
 const ResourceFormat = enum(u32) {
     b8g8r8a8 = 1,
@@ -205,7 +215,7 @@ const ResourceFlush = extern struct {
 };
 
 fn resourceFlush() void {
-    var request = ResourceFlush.init(0, 0, 1280, 800, RESOURCE_ID);
+    var request = ResourceFlush.init(0, 0, framebuffer.width, framebuffer.height, RESOURCE_ID);
     var response = GpuControlHeader.init_zeroes();
 
     sendControl(&request, &response);
@@ -298,6 +308,34 @@ pub fn getCapset(
     }
 }
 
+const ContextCreate = extern struct {
+    header: GpuControlHeader,
+    name_len: u32,
+    context_init: u32,
+    debug_name: [64]u8,
+
+    fn init(context_id: u32) ContextCreate {
+        var command = std.mem.zeroes(ContextCreate);
+        command.header = GpuControlHeader.init(.ctx_create);
+        command.header.ctx_id = context_id;
+        return command;
+    }
+};
+
+pub fn createContext(context_id: u32) void {
+    const request = ContextCreate.init(context_id);
+    var response = GpuControlHeader.init_zeroes();
+
+    sendControl(&request, &response);
+
+    const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    if (result == .ok_nodata) {
+        console.print("[GPU] Context Create:                [OK]\n", .{}) catch {};
+    } else {
+        console.print("[GPU] Context Create:                [ERR] 0x{x}\n", .{response.type}) catch {};
+    }
+}
+
 pub fn init(allocator: std.mem.Allocator) void {
     const magic = gpu.readRegister(virtio.Register.magic);
     if (magic != virtio.VirtioMmio.VIRTIO_MAGIC) {
@@ -382,7 +420,7 @@ fn sendControlBytes(request: []const u8, response: []u8) usize {
         .next = 0,
     };
 
-    const used_slot = queue_control_commands.last_used_index % virtio.QUEUE_SIZE;
+    const used_slot = queue_control_commands.expected_used_index % virtio.QUEUE_SIZE;
 
     virtio.kickQueue(gpu, queue_control_commands, 0);
 

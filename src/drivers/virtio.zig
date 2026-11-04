@@ -60,7 +60,7 @@ pub const VirtIoQueue = extern struct {
     used: VirtQueueUsed align(PAGE_SIZE),
     queue_index: usize,
     used_index: *volatile u16,
-    last_used_index: u16,
+    expected_used_index: u16,
 };
 
 comptime {
@@ -138,14 +138,21 @@ pub fn kickQueue(
     head: u16,
 ) void {
     queue.avail.ring[queue.avail.index % QUEUE_SIZE] = head;
+
+    // Record the expected completion before exposing the request.
+    queue.expected_used_index +%= 1;
+
+    // Publish descriptors and the ring entry before the new index.
+    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
+
     queue.avail.index +%= 1;
 
+    // Publish the new index before notifying the device.
     asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
 
     transport.writeRegister(Register.queue_notify, queue.queue_index);
-    queue.last_used_index +%= 1;
 }
 
 pub fn isBusy(queue: *VirtIoQueue) bool {
-    return queue.last_used_index != queue.used_index.*;
+    return queue.expected_used_index != queue.used_index.*;
 }
