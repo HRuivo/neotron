@@ -390,7 +390,7 @@ pub fn init(allocator: std.mem.Allocator) void {
 
     getDisplayInfo();
 
-    framebuffer = Framebuffer.init(allocator, 1280, 800) catch @panic("failed to allocate framebuffer");
+    framebuffer = Framebuffer.init(allocator, 640, 480) catch @panic("failed to allocate framebuffer");
 
     createResource2D(.b8g8r8a8, framebuffer.width, framebuffer.height);
     attachBackingResource();

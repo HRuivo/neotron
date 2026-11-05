@@ -24,3 +24,23 @@ pub fn activatePageTable(root_address: usize) void {
         : [value] "r" (satp_value),
         : .{ .memory = true });
 }
+
+pub fn readTime() u64 {
+    while (true) {
+        const high_before = readCsr("timeh");
+        const low = readCsr("time");
+        const high_after = readCsr("timeh");
+        if (high_before == high_after) {
+            return (@as(u64, high_before) << 32) | @as(u64, low);
+        }
+    }
+}
+
+pub fn waitTicks(ticks: u64) void {
+    const start = readTime();
+    while ((readTime() - start) < ticks) {}
+}
+
+pub fn sleepMs(milliseconds: u64) void {
+    waitTicks(milliseconds * 10_000);
+}

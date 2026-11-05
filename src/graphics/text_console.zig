@@ -106,6 +106,10 @@ pub const TextConsole = struct {
             self.cursor_column = 0;
             self.cursor_row += 1;
         }
+
+        if (self.cursor_row >= self.rows) {
+            self.scrollUp();
+        }
     }
 
     pub fn write(self: *TextConsole, text: []const u8) void {
@@ -164,5 +168,15 @@ pub const TextConsole = struct {
         });
 
         self.cursor_column = 0;
+    }
+
+    pub fn scrollUp(self: *TextConsole) void {
+        const cell_count = self.columns * self.rows;
+        const source = self.cells[self.columns..cell_count];
+        const destination = self.cells[0 .. cell_count - self.columns];
+        std.mem.copyForwards(Cell, destination, source);
+
+        self.setCursor(0, self.rows - 1);
+        self.clearLine();
     }
 };

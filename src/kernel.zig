@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const console = @import("console.zig");
+const cpu = @import("arch/riscv32/cpu.zig");
 const trap = @import("arch/riscv32/trap.zig");
 const memory = @import("memory.zig");
 const process = @import("process.zig");
@@ -80,9 +81,29 @@ export fn kernelMain() noreturn {
     text_console.write("\tNeotron OS");
     text_console.setCursor(text_console.cursor_column - 5, text_console.cursor_row);
     text_console.clearLine();
+    text_console.write("New Line\n");
+    text_console.write("New Line\n");
+    text_console.write("New Line\n");
+    text_console.write("New Line\n");
+    text_console.write("New Line\n");
+    text_console.write("New Line\n");
+    text_console.write("New Line\n");
     text_console.render();
-
     gpu.present();
+
+    const line_types: [3][]const u8 = .{
+        "Example line",
+        "Another test line",
+        "Yet another test line",
+    };
+
+    for (0..50) |i| {
+        text_console.write(line_types[i % 3]);
+        text_console.write("\n");
+        text_console.render();
+        gpu.present();
+        cpu.sleepMs(200);
+    }
 
     process.init(allocator);
     _ = process.createProcess(allocator, shell_image);
