@@ -15,20 +15,33 @@ export fn main() void {
 
         while (true) {
             const ch = user.getChar();
-            user.putChar(ch);
 
             switch (ch) {
-                '\r' => {
-                    user.putChar('\n');
+                '\r', '\n' => {
+                    user.putString("\r\n");
                     break;
                 },
+
+                '\x08', '\x7f' => {
+                    if (len > 0) {
+                        len -= 1;
+
+                        // Move left, erase the character, move left again.
+                        user.putString("\x08 \x08");
+                    }
+                },
+
                 else => {
+                    // Ignore other control characters.
+                    if (ch < 32 or ch > 126) continue;
+
                     if (len >= buff.len) {
-                        user.putString("command line too long\n");
+                        user.putString("\r\ncommand line too long\r\n");
                         continue :prompt;
                     }
                     buff[len] = ch;
                     len += 1;
+                    user.putChar(ch);
                 },
             }
         }

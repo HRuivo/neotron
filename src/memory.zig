@@ -65,6 +65,24 @@ pub fn mapKernel(
     while (addr < @intFromPtr(free_ram_end)) : (addr += PAGE_SIZE) {
         mapPage(alloc, root, addr, addr, PageFlags.rwx);
     }
+
+    // VirtIO block device registers
+    mapPage(
+        alloc,
+        root,
+        0x1000_1000,
+        0x1000_1000,
+        PageFlags.rw,
+    );
+
+    // VirtIO GPU registers
+    mapPage(
+        alloc,
+        root,
+        0x1000_2000,
+        0x1000_2000,
+        PageFlags.rw,
+    );
 }
 
 pub fn createPageTable(alloc: std.mem.Allocator) *PageTable {

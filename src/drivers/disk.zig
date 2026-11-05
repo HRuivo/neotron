@@ -1,5 +1,5 @@
 const std = @import("std");
-const console = @import("../console.zig");
+const console = @import("../console/console.zig");
 const virtio = @import("virtio.zig");
 
 const MMIO_BASE: usize = 0x10001000;

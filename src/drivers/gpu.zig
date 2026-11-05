@@ -1,5 +1,5 @@
 const std = @import("std");
-const console = @import("../console.zig");
+const console = @import("../console/sbi_console.zig");
 const virtio = @import("virtio.zig");
 const graphics = @import("../graphics/framebuffer.zig");
 const Framebuffer = graphics.Framebuffer;
@@ -185,12 +185,12 @@ fn transferToHost2D() void {
 
     _ = transport.requestTyped(queue_control_commands, &request, &response);
 
-    const result: ResponseType = @fromBackingInt(@intCast(response.type));
-    if (result == .ok_nodata) {
-        console.print("[GPU] Transfer To Host 2D:           [OK]\n", .{}) catch {};
-    } else {
-        console.print("[GPU] Transfer To Host 2D:           [ERR] 0x{x}\n", .{response.type}) catch {};
-    }
+    // const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    // if (result == .ok_nodata) {
+    //     console.print("[GPU] Transfer To Host 2D:           [OK]\n", .{}) catch {};
+    // } else {
+    //     console.print("[GPU] Transfer To Host 2D:           [ERR] 0x{x}\n", .{response.type}) catch {};
+    // }
 }
 
 const ResourceFlush = extern struct {
@@ -220,12 +220,12 @@ fn resourceFlush() void {
 
     _ = transport.requestTyped(queue_control_commands, &request, &response);
 
-    const result: ResponseType = @fromBackingInt(@intCast(response.type));
-    if (result == .ok_nodata) {
-        console.print("[GPU] Resource Flush:                [OK]\n", .{}) catch {};
-    } else {
-        console.print("[GPU] Resource Flush:                [ERR] 0x{x}\n", .{response.type}) catch {};
-    }
+    // const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    // if (result == .ok_nodata) {
+    //     console.print("[GPU] Resource Flush:                [OK]\n", .{}) catch {};
+    // } else {
+    //     console.print("[GPU] Resource Flush:                [ERR] 0x{x}\n", .{response.type}) catch {};
+    // }
 }
 
 const GetCapsetInfo = extern struct {

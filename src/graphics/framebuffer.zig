@@ -1,5 +1,4 @@
 const std = @import("std");
-const console = @import("../console.zig");
 const Font = @import("font.zig").Font;
 
 pub const Framebuffer = struct {
