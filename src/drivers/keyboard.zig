@@ -132,6 +132,8 @@ fn translateKey(code: u16) ?u8 {
         16...25 => "qwertyuiop"[code - 16],
         30...38 => "asdfghjkl"[code - 30],
         44...50 => "zxcvbnm"[code - 44],
+        28 => '\n',
+        14 => '\x08',
         else => null,
     };
 }
