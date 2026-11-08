@@ -8,6 +8,7 @@ const memory = @import("memory.zig");
 const process = @import("process.zig");
 const gpu = @import("drivers/gpu.zig");
 const disk = @import("drivers/disk.zig");
+const keyboard = @import("drivers/keyboard.zig");
 const font = @import("graphics/font.zig");
 
 const TextConsole = @import("graphics/text_console.zig").TextConsole;
@@ -57,11 +58,11 @@ export fn kernelMain() noreturn {
     disk.readWriteDisk(&buffer, 0, false);
     console.print("first sector: {s}\n", .{buffer[0..]}) catch {};
 
+    keyboard.init(allocator);
+    keyboard.setInputSink(console.enqueueInput);
+
     // Display
     gpu.init(allocator);
-    //gpu.getCapsetInfo();
-    //gpu.getCapset(1, 1) catch {};
-    //gpu.createContext(1);
 
     // Graphical Console
     text_console = TextConsole.init(
@@ -70,7 +71,6 @@ export fn kernelMain() noreturn {
         &console_font,
         2,
     ) catch @panic("failed to create text console");
-
     console.attachGraphics(&text_console);
     console.print("Console ready\n", .{}) catch {};
 

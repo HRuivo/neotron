@@ -4,6 +4,10 @@ const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
 const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
 
 pub const PAGE_SIZE: usize = 4096;
+const MMIO_DEVICE_BASE_ADDR: usize = 0x1000_0000;
+const MMIO_DEVICE_DISK: usize = 0x1000;
+const MMIO_DEVICE_GPU: usize = 0x2000;
+const MMIO_DEVICE_KEYBOARD: usize = 0x3000;
 
 pub const PageTable = [1024]u32;
 
@@ -70,8 +74,8 @@ pub fn mapKernel(
     mapPage(
         alloc,
         root,
-        0x1000_1000,
-        0x1000_1000,
+        MMIO_DEVICE_BASE_ADDR + MMIO_DEVICE_DISK,
+        MMIO_DEVICE_BASE_ADDR + MMIO_DEVICE_DISK,
         PageFlags.rw,
     );
 
@@ -79,8 +83,17 @@ pub fn mapKernel(
     mapPage(
         alloc,
         root,
-        0x1000_2000,
-        0x1000_2000,
+        MMIO_DEVICE_BASE_ADDR + MMIO_DEVICE_GPU,
+        MMIO_DEVICE_BASE_ADDR + MMIO_DEVICE_GPU,
+        PageFlags.rw,
+    );
+
+    // VirtIO keyboard registers: supervisor access only
+    mapPage(
+        alloc,
+        root,
+        MMIO_DEVICE_BASE_ADDR + MMIO_DEVICE_KEYBOARD,
+        MMIO_DEVICE_BASE_ADDR + MMIO_DEVICE_KEYBOARD,
         PageFlags.rw,
     );
 }

@@ -1,6 +1,8 @@
 const std = @import("std");
 const sbi_console = @import("sbi_console.zig");
 const gpu = @import("../drivers/gpu.zig");
+const keyboard = @import("../drivers/keyboard.zig");
+
 const TextConsole = @import("../graphics/text_console.zig").TextConsole;
 
 var graphical: ?*TextConsole = null;
@@ -66,6 +68,8 @@ pub fn enqueueInput(ch: u8) bool {
 }
 
 pub fn getChar() ?u8 {
+    keyboard.poll();
+
     if (input_count > 0) {
         const ch = input_buffer[input_head];
         input_head = (input_head + 1) % input_capacity;
