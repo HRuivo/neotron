@@ -129,11 +129,16 @@ fn handleEvent(event: InputEvent) void {
 
 fn translateKey(code: u16) ?u8 {
     return switch (code) {
+        2...13 => "1234567890-="[code - 2],
         16...25 => "qwertyuiop"[code - 16],
         30...38 => "asdfghjkl"[code - 30],
         44...50 => "zxcvbnm"[code - 44],
-        28 => '\n',
         14 => '\x08',
-        else => null,
+        28 => '\n',
+        57 => ' ',
+        else => {
+            sbi_console.print("keycode: {d}\n", .{code}) catch {};
+            return null;
+        },
     };
 }
