@@ -21,7 +21,11 @@ pub fn build(b: *std.Build) void {
         "-device",
         "virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0",
         "-device",
-        "virtio-gpu-device,bus=virtio-mmio-bus.1",
+        "virtio-gpu-device,bus=virtio-mmio-bus.1,xres=640,yres=480",
+        "-device",
+        "virtio-keyboard-device,bus=virtio-mmio-bus.2",
+        // "-display",
+        // "sdl,gl=on",
         "-s",
         //"-S",
     }));

@@ -1,6 +1,7 @@
 const graphics = @import("framebuffer.zig");
 const Framebuffer = graphics.Framebuffer;
-const Colour = graphics.Colour;
+const Color = graphics.Color;
+const font = @import("font.zig");
 
 pub fn draw(framebuffer: *Framebuffer) void {
     for (0..framebuffer.height) |y| {
@@ -9,6 +10,15 @@ pub fn draw(framebuffer: *Framebuffer) void {
         }
     }
 
-    framebuffer.drawRect(.{ .x = 256, .y = 500 }, .{ .x = 255, .y = 120 }, Colour.white());
-    framebuffer.drawRect(.{ .x = 100, .y = 100 }, .{ .x = 350, .y = 120 }, Colour.red());
+    framebuffer.drawRect(.{ .x = 256, .y = 500 }, .{ .x = 255, .y = 120 }, Color.white());
+    framebuffer.drawRect(.{ .x = 100, .y = 100 }, .{ .x = 350, .y = 120 }, Color.red());
+
+    const default_font = font.default_font;
+
+    var cursor: usize = 16;
+    const message = "Hello World!";
+    for (message) |ch| {
+        framebuffer.drawGlyph(&default_font, 2, .{ .x = cursor, .y = 16 }, ch, Color.white(), Color.black());
+        cursor += 16;
+    }
 }

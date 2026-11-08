@@ -1,5 +1,5 @@
 const std = @import("std");
-const console = @import("../console.zig");
+const console = @import("../console/sbi_console.zig");
 const virtio = @import("virtio.zig");
 const graphics = @import("../graphics/framebuffer.zig");
 const Framebuffer = graphics.Framebuffer;
@@ -8,7 +8,7 @@ const MMIO_BASE: usize = 0x10002000;
 const DEVICE_ID: usize = 16;
 const RESOURCE_ID: u32 = 1;
 
-const gpu = virtio.VirtioMmio.init(MMIO_BASE);
+const transport = virtio.VirtioMmio.init(MMIO_BASE);
 var queue_control_commands: *virtio.VirtIoQueue = undefined;
 var queue_mouse: *virtio.VirtIoQueue = undefined;
 
@@ -21,6 +21,9 @@ const CommandType = enum(u32) {
     resource_flush = 0x104,
     transfer_to_host_2d = 0x0105,
     resource_attach_backing = 0x0106,
+    get_capset_info = 0x0108,
+    get_capset = 0x0109,
+    ctx_create = 0x0200,
 };
 
 const ResourceFormat = enum(u32) {
@@ -30,6 +33,8 @@ const ResourceFormat = enum(u32) {
 const ResponseType = enum(u32) {
     ok_nodata = 0x1100,
     ok_display_info = 0x1101,
+    ok_capset_info = 0x1102,
+    ok_capset = 0x1103,
     _,
 };
 
@@ -178,14 +183,14 @@ fn transferToHost2D() void {
     var request = TransferToHost2D.init(0, 0, framebuffer.width, framebuffer.height, RESOURCE_ID);
     var response = GpuControlHeader.init_zeroes();
 
-    sendControl(&request, &response);
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
 
-    const result: ResponseType = @fromBackingInt(@intCast(response.type));
-    if (result == .ok_nodata) {
-        console.print("[GPU] Transfer To Host 2D:           [OK]\n", .{}) catch {};
-    } else {
-        console.print("[GPU] Transfer To Host 2D:           [ERR] 0x{x}\n", .{response.type}) catch {};
-    }
+    // const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    // if (result == .ok_nodata) {
+    //     console.print("[GPU] Transfer To Host 2D:           [OK]\n", .{}) catch {};
+    // } else {
+    //     console.print("[GPU] Transfer To Host 2D:           [ERR] 0x{x}\n", .{response.type}) catch {};
+    // }
 }
 
 const ResourceFlush = extern struct {
@@ -210,29 +215,137 @@ const ResourceFlush = extern struct {
 };
 
 fn resourceFlush() void {
-    var request = ResourceFlush.init(0, 0, 1280, 800, RESOURCE_ID);
+    var request = ResourceFlush.init(0, 0, framebuffer.width, framebuffer.height, RESOURCE_ID);
     var response = GpuControlHeader.init_zeroes();
 
-    sendControl(&request, &response);
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
+
+    // const result: ResponseType = @fromBackingInt(@intCast(response.type));
+    // if (result == .ok_nodata) {
+    //     console.print("[GPU] Resource Flush:                [OK]\n", .{}) catch {};
+    // } else {
+    //     console.print("[GPU] Resource Flush:                [ERR] 0x{x}\n", .{response.type}) catch {};
+    // }
+}
+
+const GetCapsetInfo = extern struct {
+    header: GpuControlHeader,
+    index: u32,
+    padding: u32,
+
+    fn init(index: u32) GetCapsetInfo {
+        var command = std.mem.zeroes(GetCapsetInfo);
+        command.header = GpuControlHeader.init(.get_capset_info);
+        command.index = index;
+        return command;
+    }
+};
+
+const CapsetInfoResponse = extern struct {
+    header: GpuControlHeader,
+    id: u32,
+    max_version: u32,
+    max_size: u32,
+    padding: u32,
+};
+
+const GetCapset = extern struct {
+    header: GpuControlHeader,
+    id: u32,
+    version: u32,
+
+    fn init(id: u32, version: u32) GetCapset {
+        return .{
+            .header = GpuControlHeader.init(.get_capset),
+            .id = id,
+            .version = version,
+        };
+    }
+};
+
+const CapsetResponse = extern struct {
+    header: GpuControlHeader,
+    caps: VirglCapsV1,
+};
+
+const VirglCapsV1 = extern struct {
+    max_version: u32,
+    sampler: [16]u32,
+    render: [16]u32,
+    depthstencil: [16]u32,
+    vertexbuffer: [16]u32,
+    boolean_flags: u32,
+    glsl_level: u32,
+    max_texture_array_layers: u32,
+    max_streamout_buffers: u32,
+    max_dual_source_render_targets: u32,
+    max_render_targets: u32,
+    max_samples: u32,
+    prim_mask: u32,
+    max_tbo_size: u32,
+    max_uniform_blocks: u32,
+    max_viewports: u32,
+    max_texture_gather_components: u32,
+};
+
+pub fn getCapset(
+    id: u32,
+    version: u32,
+) !void {
+    const request = GetCapset.init(id, version);
+    var response = std.mem.zeroes(CapsetResponse);
+
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
+
+    const result: ResponseType = @fromBackingInt(@intCast(response.header.type));
+    if (result == .ok_capset) {
+        console.print("[GPU] Capset:                        [OK]\n", .{}) catch {};
+        console.print("      GLSL Level:        {d}\n", .{response.caps.glsl_level}) catch {};
+        console.print("      Max Samples:       {d}\n", .{response.caps.max_samples}) catch {};
+        console.print("      Max Viewports:     {d}\n", .{response.caps.max_viewports}) catch {};
+    } else {
+        console.print("[GPU] Capset:                        [ERR] 0x{x}\n", .{response.header.type}) catch {};
+    }
+}
+
+const ContextCreate = extern struct {
+    header: GpuControlHeader,
+    name_len: u32,
+    context_init: u32,
+    debug_name: [64]u8,
+
+    fn init(context_id: u32) ContextCreate {
+        var command = std.mem.zeroes(ContextCreate);
+        command.header = GpuControlHeader.init(.ctx_create);
+        command.header.ctx_id = context_id;
+        return command;
+    }
+};
+
+pub fn createContext(context_id: u32) void {
+    const request = ContextCreate.init(context_id);
+    var response = GpuControlHeader.init_zeroes();
+
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
 
     const result: ResponseType = @fromBackingInt(@intCast(response.type));
     if (result == .ok_nodata) {
-        console.print("[GPU] Resource Flush:                [OK]\n", .{}) catch {};
+        console.print("[GPU] Context Create:                [OK]\n", .{}) catch {};
     } else {
-        console.print("[GPU] Resource Flush:                [ERR] 0x{x}\n", .{response.type}) catch {};
+        console.print("[GPU] Context Create:                [ERR] 0x{x}\n", .{response.type}) catch {};
     }
 }
 
 pub fn init(allocator: std.mem.Allocator) void {
-    const magic = gpu.readRegister(virtio.Register.magic);
+    const magic = transport.readRegister(virtio.Register.magic);
     if (magic != virtio.VirtioMmio.VIRTIO_MAGIC) {
         @panic("[virtio][GPU]: invalid magic value");
     }
-    const version = gpu.readRegister(virtio.Register.version);
+    const version = transport.readRegister(virtio.Register.version);
     if (version != 1) {
         @panic("[virtio][GPU]: invalid version");
     }
-    const device_id = gpu.readRegister(virtio.Register.device_id);
+    const device_id = transport.readRegister(virtio.Register.device_id);
     if (device_id != DEVICE_ID) {
         std.debug.panic("[virtio][GPU]: invalid devide id={x}", .{device_id});
     }
@@ -242,35 +355,42 @@ pub fn init(allocator: std.mem.Allocator) void {
         .{ magic, version, device_id },
     ) catch {};
 
-    gpu.writeRegister(virtio.Register.device_status, 0);
-    gpu.setRegisterBits(virtio.Register.device_status, virtio.Status.ack);
-    gpu.setRegisterBits(virtio.Register.device_status, virtio.Status.driver);
+    transport.writeRegister(virtio.Register.device_status, 0);
+    transport.setRegisterBits(virtio.Register.device_status, virtio.Status.ack);
+    transport.setRegisterBits(virtio.Register.device_status, virtio.Status.driver);
 
-    gpu.writeRegister(0x14, 0);
-    const feature_word: u32 = gpu.readRegister(0x10);
+    transport.writeRegister(0x14, 0);
+    const feature_word: u32 = transport.readRegister(0x10);
+    const has_virgl = (feature_word & 1) != 0;
     console.print("[GPU] Feature word: 0x{x}\n", .{feature_word}) catch {};
+    if (has_virgl) {
+        console.print("[GPU] Has VIRGL\n", .{}) catch {};
+    }
 
     // select driver-feature page 0.
-    gpu.writeRegister(0x24, 0);
-    // accept no optinal features on that page.
-    gpu.writeRegister(0x20, 0);
+    transport.writeRegister(0x24, 0);
+    // accept VirGL if offered.
+    transport.writeRegister(0x20, feature_word & 1);
 
-    gpu.writeRegister(virtio.Register.queue_sel, 0);
-    const queue_num_max = gpu.readRegister(virtio.Register.queue_num_max);
+    const numcapsets = transport.readRegister(0x108);
+    console.print("[GPU] Num Capability Sets: {d}\n", .{numcapsets}) catch {};
+
+    transport.writeRegister(virtio.Register.queue_sel, 0);
+    const queue_num_max = transport.readRegister(virtio.Register.queue_num_max);
     console.print("[GPU] Queue Num Max: {d}\n", .{queue_num_max}) catch {};
 
-    gpu.writeRegister(virtio.Register.page_size, virtio.PAGE_SIZE);
+    transport.writeRegister(virtio.Register.page_size, virtio.PAGE_SIZE);
 
-    queue_control_commands = virtio.initQueue(allocator, gpu, 0);
-    queue_mouse = virtio.initQueue(allocator, gpu, 1);
+    queue_control_commands = virtio.VirtIoQueue.init(allocator, transport, 0);
+    queue_mouse = virtio.VirtIoQueue.init(allocator, transport, 1);
 
-    gpu.setRegisterBits(virtio.Register.device_status, virtio.Status.driver_ok);
-    const status = gpu.readRegister(virtio.Register.device_status);
+    transport.setRegisterBits(virtio.Register.device_status, virtio.Status.driver_ok);
+    const status = transport.readRegister(virtio.Register.device_status);
     console.print("[GPU] Device status: 0b{b}\n", .{status}) catch {};
 
     getDisplayInfo();
 
-    framebuffer = Framebuffer.init(allocator, 1280, 800) catch @panic("failed to allocate framebuffer");
+    framebuffer = Framebuffer.init(allocator, 640, 480) catch @panic("failed to allocate framebuffer");
 
     createResource2D(.b8g8r8a8, framebuffer.width, framebuffer.height);
     attachBackingResource();
@@ -286,36 +406,11 @@ pub fn getFramebuffer() *Framebuffer {
     return &framebuffer;
 }
 
-fn sendControl(request: anytype, response: anytype) void {
-    const request_bytes = std.mem.asBytes(request);
-    const response_bytes = std.mem.asBytes(response);
-
-    queue_control_commands.descs[0] = .{
-        .addr = @intFromPtr(request_bytes),
-        .len = @intCast(request_bytes.len),
-        .flags = virtio.DescriptorFlags.next,
-        .next = 1,
-    };
-    queue_control_commands.descs[1] = .{
-        .addr = @intFromPtr(response_bytes),
-        .len = @intCast(response_bytes.len),
-        .flags = virtio.DescriptorFlags.write,
-        .next = 0,
-    };
-
-    virtio.kickQueue(gpu, queue_control_commands, 0);
-
-    while (virtio.isBusy(queue_control_commands)) {
-        asm volatile ("nop");
-    }
-    asm volatile ("fence iorw, iorw" ::: .{ .memory = true });
-}
-
 fn setScanout(width: u32, height: u32, scanout_id: u32, source_id: u32) void {
     var request = SetScanout.init(width, height, scanout_id, source_id);
     var response: GpuControlHeader = GpuControlHeader.init_zeroes();
 
-    sendControl(&request, &response);
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
 
     const result: ResponseType = @fromBackingInt(@intCast(response.type));
     if (result == .ok_nodata) {
@@ -329,7 +424,7 @@ pub fn attachBackingResource() void {
     var request = ResourceAttachBacking.init(RESOURCE_ID, framebuffer.pixels);
     var response: GpuControlHeader = GpuControlHeader.init_zeroes();
 
-    sendControl(&request, &response);
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
 
     const result: ResponseType = @fromBackingInt(@intCast(response.type));
     if (result == .ok_nodata) {
@@ -343,7 +438,7 @@ pub fn createResource2D(format: ResourceFormat, width: u32, height: u32) void {
     var request = ResourceCreate2D.init(RESOURCE_ID, format, width, height);
     var response: GpuControlHeader = GpuControlHeader.init_zeroes();
 
-    sendControl(&request, &response);
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
 
     const result: ResponseType = @fromBackingInt(@intCast(response.type));
     if (result == .ok_nodata) {
@@ -353,11 +448,26 @@ pub fn createResource2D(format: ResourceFormat, width: u32, height: u32) void {
     }
 }
 
+pub fn getCapsetInfo() void {
+    var request = GetCapsetInfo.init(0);
+    var response = std.mem.zeroes(CapsetInfoResponse);
+
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
+
+    const result: ResponseType = @fromBackingInt(@intCast(response.header.type));
+    if (result == .ok_capset_info) {
+        console.print("[GPU] Capability Set:                [OK]\n", .{}) catch {};
+        console.print("[GPU] Capability Set: {d}, {d}, {d}\n", .{ response.id, response.max_version, response.max_size }) catch {};
+    } else {
+        console.print("[GPU] Capability Set:                [ERR] 0x{x}\n", .{response.header.type}) catch {};
+    }
+}
+
 pub fn getDisplayInfo() void {
     var request = GpuControlHeader.init(.get_display_info);
     var response = DisplayInfoResponse.init();
 
-    sendControl(&request, &response);
+    _ = transport.requestTyped(queue_control_commands, &request, &response);
 
     const result: ResponseType = @fromBackingInt(@intCast(response.header.type));
 

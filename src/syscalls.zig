@@ -1,15 +1,22 @@
 const std = @import("std");
 const syscall = @import("syscall");
-const console = @import("console.zig");
+const console = @import("console/console.zig");
 const process = @import("process.zig");
 
 pub fn handleSyscall(number: usize, arg0: usize) usize {
     switch (number) {
         @backingInt(syscall.Number.putchar) => {
-            console.putChar(@truncate(arg0)) catch @panic("console write failed");
+            defer console.flush();
+
+            console.putChar(@truncate(arg0)) catch
+                @panic("console write failed");
+
             return arg0;
         },
         @backingInt(syscall.Number.getchar) => {
+            // Make pending output visible before waiting for input
+            console.flush();
+
             while (true) {
                 if (console.getChar()) |ch| {
                     return ch;
