@@ -16,6 +16,10 @@ pub fn getChar() u8 {
     return @truncate(sysCall(.getchar, 0, 0, 0));
 }
 
+pub fn spawn(program: syscall.Program) usize {
+    return sysCall(.spawn, @backingInt(program), 0, 0);
+}
+
 export fn start() linksection(".text.start") callconv(.naked) void {
     asm volatile (
         \\mv sp, %[stack]

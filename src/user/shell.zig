@@ -51,6 +51,9 @@ export fn main() void {
             user.putString("Hello world from shell!\n");
         } else if (std.mem.eql(u8, command, "quit")) {
             user.exit();
+        } else if (std.mem.eql(u8, command, "run-hello")) {
+            const pid = user.spawn(.hello);
+            _ = pid;
         } else {
             user.putString("unknown command!\n");
         }

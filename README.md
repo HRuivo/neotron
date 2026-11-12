@@ -19,3 +19,7 @@ Requires Zig 0.17.0 and `qemu-system-riscv32`.
 zig build
 zig build run
 ```
+
+For a demo screenshot, wait for the initialization summary and shell prompt
+in the QEMU display. Click the display, type `hello`, and press Enter to show
+`Hello world from shell!` beneath the boot messages.

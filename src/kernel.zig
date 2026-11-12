@@ -6,6 +6,7 @@ const cpu = @import("arch/riscv32/cpu.zig");
 const trap = @import("arch/riscv32/trap.zig");
 const memory = @import("memory.zig");
 const process = @import("process.zig");
+const programs = @import("programs.zig");
 const gpu = @import("drivers/gpu.zig");
 const disk = @import("drivers/disk.zig");
 const keyboard = @import("drivers/keyboard.zig");
@@ -21,8 +22,6 @@ const stack_top = @extern([*]align(16) u8, .{ .name = "__stack_top" });
 
 const console_font = font.default_font;
 var text_console: TextConsole = undefined;
-
-const shell_image = @embedFile("shell_image");
 
 fn kernelPanic(message: []const u8, return_address: ?usize) noreturn {
     _ = sbi_console.writeBytes("\nKERNEL PANIC: ") catch 0;
@@ -75,7 +74,7 @@ export fn kernelMain() noreturn {
     console.print("Console ready\n", .{}) catch {};
 
     process.init(allocator);
-    _ = process.createProcess(allocator, shell_image);
+    _ = process.createProcess(allocator, programs.shell_image);
 
     process.yield();
     @panic("switched to idle process");

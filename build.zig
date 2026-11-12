@@ -127,5 +127,48 @@ fn buildKernel(b: *std.Build) *std.Build.Step.Compile {
         .root_source_file = shell_bin_output,
     });
 
+    const hello = b.addExecutable(.{
+        .name = "hello",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = .small,
+            .link_libc = false,
+            .unwind_tables = .none,
+        }),
+    });
+
+    hello.root_module.addCSourceFiles(.{
+        .files = &.{
+            "src/user/hello.c",
+            "src/user/runtime.c",
+        },
+        .flags = &.{ "-std=c11", "-ffreestanding" },
+    });
+
+    hello.setLinkerScript(b.path("linker/user.ld"));
+    hello.entry = .{ .symbol_name = "start" };
+
+    b.installArtifact(hello);
+
+    const hello_bin = b.addSystemCommand(&.{
+        "llvm-objcopy",
+        "--set-section-flags",
+        ".bss=alloc,contents",
+        "-O",
+        "binary",
+    });
+    hello_bin.addFileArg(hello.getEmittedBin());
+    const hello_bin_output = hello_bin.addOutputFileArg("hello.bin");
+
+    const install_hello_bin = b.addInstallBinFile(
+        hello_bin_output,
+        "hello.bin",
+    );
+    b.default_step.dependOn(&install_hello_bin.step);
+
+    kernel.root_module.addAnonymousImport("hello_image", .{
+        .root_source_file = hello_bin_output,
+    });
+
     return kernel;
 }
